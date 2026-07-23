@@ -203,166 +203,220 @@
       @update:limit="pagination.setLimit($event); loadData()"
     />
 
-    <AdminModal v-model="dialogVisible" :title="editing ? '编辑商品' : '新增商品'" max-width="480px" hide-actions>
-      <form class="modal-form" @submit.prevent="save">
-        <label>
-          <span>名称</span>
-          <input v-model="form.title" required />
-        </label>
-        <label>
-          <span>购买前说明</span>
-          <textarea
-            v-model="form.description"
-            rows="4"
-            maxlength="500"
-            placeholder="说明适用范围、到账时间、限制条件和售后规则；不要填写交付密钥"
-          ></textarea>
-        </label>
-        <label>
-          <span>商品图片 URL</span>
-          <input
-            v-model.trim="form.coverUrl"
-            type="text"
-            inputmode="url"
-            maxlength="500"
-            placeholder="https:// 或上传图片后自动填写"
-            autocomplete="url"
-          />
-        </label>
-        <div class="image-upload-row">
-          <label class="btn btn-ghost btn-sm image-upload-button" :class="{ 'is-disabled': uploadingCover }">
-            {{ uploadingCover ? '上传中…' : '上传图片' }}
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/avif"
-              :disabled="uploadingCover"
-              @change="uploadCoverImage"
-            />
-          </label>
-          <span class="field-help">JPEG、PNG、WebP 或 AVIF，最大 5MiB</span>
+    <AdminModal v-model="dialogVisible" :title="editing ? '编辑商品' : '新增商品'" max-width="720px" hide-actions>
+      <form class="modal-form product-editor-form" @submit.prevent="save">
+        <div class="product-editor-scroll">
+          <!-- 基本信息：名称 / 分类 / 说明 -->
+          <section class="form-section" aria-labelledby="pe-basic">
+            <header class="form-section-head">
+              <h4 id="pe-basic" class="form-section-title">基本信息</h4>
+              <p class="form-section-desc">前台展示名称、分类与购买前说明</p>
+            </header>
+            <div class="form-grid two-cols">
+              <label class="field-span-2">
+                <span>名称</span>
+                <input v-model="form.title" required maxlength="120" autocomplete="off" />
+              </label>
+              <label>
+                <span>分类</span>
+                <input v-model="form.category" list="product-category-options" placeholder="选择或输入新分类" />
+                <datalist id="product-category-options">
+                  <option v-for="category in categoryOptions" :key="category.id" :value="category.name" />
+                </datalist>
+              </label>
+              <label class="field-span-2">
+                <span>购买前说明</span>
+                <textarea
+                  v-model="form.description"
+                  rows="3"
+                  maxlength="500"
+                  placeholder="适用范围、到账时间、限制与售后；勿写交付密钥"
+                ></textarea>
+                <small class="field-hint">对买家可见，控制在简短说明即可</small>
+              </label>
+            </div>
+          </section>
+
+          <!-- 图片与定价 -->
+          <section class="form-section" aria-labelledby="pe-media">
+            <header class="form-section-head">
+              <h4 id="pe-media" class="form-section-title">图片与定价</h4>
+              <p class="form-section-desc">封面与售价是列表页最显眼的信息</p>
+            </header>
+            <div class="media-price-layout">
+              <div class="cover-panel">
+                <div class="cover-preview-frame" :class="{ 'has-image': Boolean(form.coverUrl) && !coverPreviewFailed }">
+                  <img
+                    v-if="form.coverUrl && !coverPreviewFailed"
+                    :src="form.coverUrl"
+                    :alt="`${form.title || '商品'}封面预览`"
+                    class="cover-preview"
+                    @error="coverPreviewFailed = true"
+                  />
+                  <div v-else class="cover-empty">
+                    <span>{{ coverPreviewFailed ? '图片无法加载' : '暂无封面' }}</span>
+                    <small v-if="coverPreviewFailed">请检查 URL 是否可公开访问</small>
+                  </div>
+                </div>
+                <div class="image-upload-row">
+                  <label class="btn btn-ghost btn-sm image-upload-button" :class="{ 'is-disabled': uploadingCover }">
+                    {{ uploadingCover ? '上传中…' : '上传图片' }}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/avif"
+                      :disabled="uploadingCover"
+                      @change="uploadCoverImage"
+                    />
+                  </label>
+                  <small class="field-hint">JPEG / PNG / WebP / AVIF，≤5MiB</small>
+                </div>
+                <label>
+                  <span>图片 URL</span>
+                  <input
+                    v-model.trim="form.coverUrl"
+                    type="text"
+                    inputmode="url"
+                    maxlength="500"
+                    placeholder="https:// 或上传后自动填写"
+                    autocomplete="url"
+                  />
+                  <small class="field-hint">优先站内 R2；外部 HTTPS 仅作兼容</small>
+                </label>
+              </div>
+
+              <div class="price-panel">
+                <div class="form-grid two-cols">
+                  <label>
+                    <span>币种</span>
+                    <select v-model="form.currency">
+                      <option v-for="currency in currencyOptions" :key="currency.code" :value="currency.code">
+                        {{ currency.code }} · {{ currency.name }}
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>价格（{{ priceInputUnit }}）</span>
+                    <input
+                      v-model.trim="form.priceMajor"
+                      type="text"
+                      :inputmode="currentCurrencyMeta.exponent === 0 ? 'numeric' : 'decimal'"
+                      :placeholder="currentCurrencyMeta.exponent === 0 ? '例如 500' : '例如 9.90'"
+                      required
+                    />
+                  </label>
+                </div>
+                <p v-if="pricePreview" class="price-preview-line">
+                  保存后展示 <strong>{{ pricePreview }}</strong>
+                </p>
+                <small class="field-hint">{{ currencyPaymentHint }}</small>
+                <p v-if="isFreeProductPrice" class="inline-callout">
+                  免费商品前台每次领取 1 件，不展示支付、余额、折扣与数量。活动建议设「每邮箱限购 1 次」。
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <!-- 交付与履约 -->
+          <section class="form-section" aria-labelledby="pe-fulfill">
+            <header class="form-section-head">
+              <h4 id="pe-fulfill" class="form-section-title">交付与履约</h4>
+              <p class="form-section-desc">决定如何发货、是否收集买家信息</p>
+            </header>
+            <div class="form-grid two-cols">
+              <label>
+                <span>交付模式</span>
+                <select v-model="form.fulfillmentMode">
+                  <option v-for="option in FULFILLMENT_MODE_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+                <small class="field-hint">{{ fulfillmentModeGuide }}</small>
+              </label>
+              <label>
+                <span>交付展示方式</span>
+                <select v-model="form.deliveryVisibility">
+                  <option v-for="option in DELIVERY_VISIBILITY_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+                <small class="field-hint">「仅邮件」会隐藏卡密，适合邮箱限领活动</small>
+              </label>
+              <label>
+                <span>下单履约信息</span>
+                <select v-model="form.fulfillmentInputType" @change="handleFulfillmentInputTypeChange">
+                  <option v-for="option in FULFILLMENT_INPUT_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+                <small class="field-hint">充值账号、预约信息等通用字段，不绑定行业</small>
+              </label>
+              <label v-if="form.fulfillmentMode !== 'card'" class="field-span-2">
+                <span>交付内容</span>
+                <textarea v-model="form.salesCopy" rows="2" placeholder="非卡密商品的交付说明 / 资料 / 链接"></textarea>
+              </label>
+            </div>
+            <div v-if="form.fulfillmentInputType !== 'none'" class="fulfillment-input-box">
+              <div class="form-grid two-cols">
+                <label>
+                  <span>字段名称</span>
+                  <input v-model.trim="form.fulfillmentInputLabel" maxlength="80" placeholder="例如：充值账号" />
+                </label>
+                <label>
+                  <span>填写提示</span>
+                  <input v-model.trim="form.fulfillmentInputHint" maxlength="200" placeholder="例如：请核对后提交，不要填写密码" />
+                </label>
+              </div>
+              <label class="checkbox-label">
+                <input v-model="form.fulfillmentInputRequired" type="checkbox" />
+                <span>客户下单时必须填写</span>
+              </label>
+            </div>
+          </section>
+
+          <!-- 库存、限购与上架 -->
+          <section class="form-section" aria-labelledby="pe-stock">
+            <header class="form-section-head">
+              <h4 id="pe-stock" class="form-section-title">库存与销售规则</h4>
+              <p class="form-section-desc">库存展示、限购与上架状态</p>
+            </header>
+            <div
+              v-if="editing && form.fulfillmentMode === 'card' && editingStock !== undefined"
+              class="stock-hint"
+            >
+              <span class="stock-hint-label">可用库存：{{ editingStock }}</span>
+              <span class="stock-hint-desc">由卡密数量决定，不可直接编辑</span>
+            </div>
+            <div class="form-grid two-cols">
+              <label>
+                <span>前台库存展示</span>
+                <select v-model="form.stockDisplayMode">
+                  <option v-for="option in STOCK_DISPLAY_MODE_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </label>
+              <label>
+                <span>限购数量（每邮箱）</span>
+                <input v-model.trim="form.purchaseLimit" type="number" min="0" placeholder="留空或 0 表示不限购" />
+              </label>
+            </div>
+            <div class="toggle-row">
+              <label class="checkbox-label">
+                <input v-model="form.purchaseLimitDisplay" type="checkbox" />
+                <span>前台显示限购数量</span>
+              </label>
+              <label class="checkbox-label">
+                <input v-model="form.active" type="checkbox" :disabled="form.currency !== 'CNY'" />
+                <span>上架{{ form.currency !== 'CNY' ? '（仅 CNY 可上架）' : '' }}</span>
+              </label>
+            </div>
+          </section>
+
+          <fieldset v-if="!editing" class="storefront-fieldset">
+            <legend>发布到展示渠道</legend>
+            <div class="storefront-check-grid">
+              <label v-for="storefront in storefronts" :key="storefront.id" class="checkbox-label">
+                <input v-model="form.storefrontIds" type="checkbox" :value="storefront.id" />
+                <span>{{ storefront.name }}{{ storefront.isDefault ? '（默认）' : '' }}</span>
+              </label>
+            </div>
+            <small v-if="form.storefrontIds.length === 0" class="field-hint">未选渠道将保存为未发布草稿</small>
+          </fieldset>
         </div>
-        <div v-if="form.coverUrl" class="cover-preview-wrap">
-          <img
-            v-if="!coverPreviewFailed"
-            :src="form.coverUrl"
-            :alt="`${form.title || '商品'}封面预览`"
-            class="cover-preview"
-            @error="coverPreviewFailed = true"
-          />
-          <span v-else class="field-help">图片无法加载，请检查 URL 是否可公开访问。</span>
-        </div>
-        <p class="field-help">建议优先上传到站内 R2；外部 HTTPS URL 仅用于兼容已有图片。</p>
-        <div class="money-fields">
-          <label>
-            <span>币种</span>
-            <select v-model="form.currency">
-              <option v-for="currency in currencyOptions" :key="currency.code" :value="currency.code">
-                {{ currency.code }} · {{ currency.name }}
-              </option>
-            </select>
-          </label>
-          <label>
-            <span>价格（{{ priceInputUnit }}）</span>
-            <input
-              v-model.trim="form.priceMajor"
-              type="text"
-              :inputmode="currentCurrencyMeta.exponent === 0 ? 'numeric' : 'decimal'"
-              :placeholder="currentCurrencyMeta.exponent === 0 ? '例如 500' : '例如 9.90'"
-              required
-            />
-          </label>
-        </div>
-        <p class="field-help">
-          {{ currencyPaymentHint }}
-        </p>
-        <p v-if="pricePreview" class="field-help">
-          保存后展示：<strong>{{ pricePreview }}</strong>
-        </p>
-        <p v-if="isFreeProductPrice" class="field-help">
-          免费商品前台固定每次领取 1 件，不展示支付方式、余额、折扣码和数量。活动商品建议按需要设置“每邮箱限购 1 次”。
-        </p>
-        <label>
-          <span>分类</span>
-          <input v-model="form.category" list="product-category-options" placeholder="选择或输入新分类" />
-          <datalist id="product-category-options">
-            <option v-for="category in categoryOptions" :key="category.id" :value="category.name" />
-          </datalist>
-        </label>
-        <label>
-          <span>交付模式</span>
-          <select v-model="form.fulfillmentMode">
-            <option v-for="option in FULFILLMENT_MODE_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-        </label>
-        <p class="field-help">
-          {{ fulfillmentModeGuide }}
-        </p>
-        <label>
-          <span>下单履约信息</span>
-          <select v-model="form.fulfillmentInputType" @change="handleFulfillmentInputTypeChange">
-            <option v-for="option in FULFILLMENT_INPUT_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-        </label>
-        <template v-if="form.fulfillmentInputType !== 'none'">
-          <label>
-            <span>字段名称</span>
-            <input v-model.trim="form.fulfillmentInputLabel" maxlength="80" placeholder="例如：充值账号" />
-          </label>
-          <label>
-            <span>填写提示</span>
-            <input v-model.trim="form.fulfillmentInputHint" maxlength="200" placeholder="例如：请核对后提交，不要填写密码" />
-          </label>
-          <label class="checkbox-label">
-            <input v-model="form.fulfillmentInputRequired" type="checkbox" />
-            <span>客户下单时必须填写</span>
-          </label>
-        </template>
-        <p class="field-help">该配置适用于充值账号、预约信息、定制内容等通用人工履约，不绑定具体行业。</p>
-        <label>
-          <span>交付展示方式</span>
-          <select v-model="form.deliveryVisibility">
-            <option v-for="option in DELIVERY_VISIBILITY_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-        </label>
-        <p class="field-help">
-          仅邮件展示会由后端隐藏卡密；卡密生成后通过邮箱交付，邮件可能延迟。适合每邮箱限领一次的注册码活动。
-        </p>
-        <!-- 库存只读提示：卡密模式的库存由 cards 表统计得出，不可直接编辑 -->
-        <div v-if="editing && form.fulfillmentMode === 'card' && editingStock !== undefined" class="stock-hint">
-          <span class="stock-hint-label">可用库存：{{ editingStock }}</span>
-          <span class="stock-hint-desc">（由卡密数量决定，不可直接编辑）</span>
-        </div>
-        <label>
-          <span>前台库存展示</span>
-          <select v-model="form.stockDisplayMode">
-            <option v-for="option in STOCK_DISPLAY_MODE_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-        </label>
-        <label v-if="form.fulfillmentMode !== 'card'">
-          <span>交付内容</span>
-          <textarea v-model="form.salesCopy" rows="3" placeholder="用于非卡密商品的交付说明/资料/链接等"></textarea>
-        </label>
-        <label>
-          <span>限购数量（每邮箱）</span>
-          <input v-model.trim="form.purchaseLimit" type="number" min="0" placeholder="留空或 0 表示不限购" />
-        </label>
-        <label class="checkbox-label">
-          <input v-model="form.purchaseLimitDisplay" type="checkbox" />
-          <span>前台显示限购数量</span>
-        </label>
-        <label class="checkbox-label">
-          <input v-model="form.active" type="checkbox" :disabled="form.currency !== 'CNY'" />
-          <span>上架</span>
-        </label>
-        <fieldset v-if="!editing" class="storefront-fieldset">
-          <legend>发布到展示渠道</legend>
-          <label v-for="storefront in storefronts" :key="storefront.id" class="checkbox-label">
-            <input v-model="form.storefrontIds" type="checkbox" :value="storefront.id" />
-            <span>{{ storefront.name }}{{ storefront.isDefault ? '（默认）' : '' }}</span>
-          </label>
-          <p v-if="form.storefrontIds.length === 0" class="field-help">未选择渠道，商品会保存为未发布草稿。</p>
-        </fieldset>
-        <div class="modal-actions">
+
+        <div class="product-editor-footer modal-actions">
           <button type="button" class="btn btn-ghost" :disabled="saving || uploadingCover" @click="dialogVisible = false">取消</button>
           <button type="submit" class="btn btn-primary" :disabled="saving || uploadingCover">
             {{ saving ? '保存中…' : '保存' }}
@@ -982,8 +1036,7 @@ watch(() => form.coverUrl, () => {
   width: 68px;
 }
 
-.product-cover-thumb,
-.cover-preview {
+.product-cover-thumb {
   display: block;
   object-fit: cover;
   border: 1px solid var(--border, #e5e7eb);
@@ -991,10 +1044,146 @@ watch(() => form.coverUrl, () => {
   background: var(--tg-secondary-bg, #fff);
 }
 
+/* ── 商品编辑弹窗：分区、双列、固定脚部 ── */
+.product-editor-form {
+  gap: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  max-height: min(78dvh, 720px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.product-editor-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  padding-bottom: 4px;
+}
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 12px 14px;
+  border: 0.5px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: var(--r-md, 8px);
+  background: var(--tg-secondary-bg, rgba(0, 0, 0, 0.18));
+}
+
+.form-section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 2px;
+  border-bottom: 0.5px solid var(--border, rgba(255, 255, 255, 0.08));
+  margin-bottom: 2px;
+}
+
+.form-section-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--tg-text, #e5e7eb);
+}
+
+.form-section-desc {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--tg-hint, #9ca3af);
+}
+
+.form-grid {
+  display: grid;
+  gap: 10px 12px;
+}
+
+.form-grid.two-cols {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-grid .field-span-2 {
+  grid-column: 1 / -1;
+}
+
+.product-editor-form :deep(.field-hint),
+.product-editor-form .field-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--tg-hint, #9ca3af);
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 400;
+}
+
+.media-price-layout {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.9fr) minmax(0, 1.2fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.cover-panel,
+.price-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cover-preview-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-md, 8px);
+  border: 0.5px dashed var(--border, rgba(255, 255, 255, 0.2));
+  background: var(--tg-bg, #0b1220);
+  overflow: hidden;
+}
+
+.cover-preview-frame.has-image {
+  border-style: solid;
+}
+
+.cover-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.cover-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px;
+  color: var(--tg-hint, #9ca3af);
+  font-size: 12px;
+  text-align: center;
+}
+
+.cover-empty small {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
 .image-upload-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -1028,15 +1217,72 @@ watch(() => form.coverUrl, () => {
   white-space: nowrap;
 }
 
-.cover-preview-wrap {
-  min-height: 120px;
-  display: flex;
-  align-items: center;
+.price-preview-line {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--tg-text, #e5e7eb);
 }
 
-.cover-preview {
-  width: min(100%, 240px);
-  aspect-ratio: 16 / 9;
+.price-preview-line strong {
+  font-weight: 600;
+  color: var(--tg-btn, #60a5fa);
+}
+
+.inline-callout {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-md, 8px);
+  background: rgba(96, 165, 250, 0.1);
+  border: 0.5px solid rgba(96, 165, 250, 0.22);
+  color: var(--tg-hint, #cbd5e1);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.fulfillment-input-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--r-md, 8px);
+  border: 0.5px solid var(--border, rgba(255, 255, 255, 0.1));
+  background: var(--tg-bg, rgba(0, 0, 0, 0.15));
+}
+
+.toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+}
+
+.storefront-check-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.product-editor-footer.modal-actions {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 0;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: var(--tg-bg, #0f172a);
+}
+
+@media (max-width: 640px) {
+  .form-grid.two-cols,
+  .media-price-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .form-section {
+    padding: 10px;
+  }
 }
 
 .sort-context {
@@ -1114,27 +1360,17 @@ watch(() => form.coverUrl, () => {
   flex-direction: column;
   gap: 8px;
   margin: 0;
-  padding: 10px;
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 6px;
+  padding: 10px 12px 12px;
+  border: 0.5px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: var(--r-md, 8px);
+  background: var(--tg-secondary-bg, rgba(0, 0, 0, 0.18));
 }
 
 .storefront-fieldset legend {
   padding: 0 4px;
   font-size: 12px;
   font-weight: 600;
-}
-
-.money-fields {
-  display: grid;
-  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1.2fr);
-  gap: 12px;
-}
-
-@media (max-width: 520px) {
-  .money-fields {
-    grid-template-columns: 1fr;
-  }
+  color: var(--tg-text, #e5e7eb);
 }
 
 .mode-tag {

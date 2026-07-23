@@ -89,7 +89,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { getPayStatus } from '@/api'
 import { formatPrice } from '@/composables/useFormat'
@@ -145,6 +145,74 @@ const deliveryFulfillmentMode = computed(() => {
 })
 const isCardDelivery = computed(() => deliveryFulfillmentMode.value === 'card' || Boolean(order.value?.cards?.length))
 
+const pollableStatuses = new Set(['pending', 'paid'])
+const terminalStatuses = new Set(['issued', 'expired', 'failed', 'canceled', 'cancelled', 'closed', 'refunded'])
+
+let orderPollTimer: ReturnType<typeof setInterval> | null = null
+let orderPollInFlight = false
+let orderPollContext: { orderId: string; token: string } | null = null
+
+function buildOrderState(res: any): Order {
+  return {
+    id: res.orderId,
+    orderNo: res.orderNo || '',
+    productId: '',
+    productTitle: res.productTitle || '',
+    productName: res.productTitle || '',
+    priceCents: res.amountCents || 0,
+    amountCents: res.amountCents || 0,
+    paidCents: res.amountCents || 0,
+    currency: res.currency || 'CNY',
+    status: res.status as Order['status'],
+    fulfillmentMode: res.fulfillmentMode,
+    delivery: res.delivery,
+    cards: res.cards || [],
+    items: res.items || [],
+    expiresAt: res.expiresAt,
+    createdAt: '',
+    buyerEmail: res.buyerEmail,
+    buyerContact: res.buyerContact,
+    paymentRef: res.paymentRef,
+    paidAt: res.paidAt,
+    issuedAt: res.issuedAt,
+    deliveryVisibility: res.deliveryVisibility,
+    deliveryMessage: res.deliveryMessage,
+  }
+}
+
+function stopOrderPolling() {
+  if (orderPollTimer) {
+    clearInterval(orderPollTimer)
+    orderPollTimer = null
+  }
+  orderPollInFlight = false
+  orderPollContext = null
+}
+
+async function refreshOrderStatus() {
+  if (!orderPollContext || orderPollInFlight) return
+  orderPollInFlight = true
+  try {
+    const res = await getPayStatus(orderPollContext.orderId, orderPollContext.token)
+    order.value = buildOrderState(res)
+    if (!pollableStatuses.has(res.status)) {
+      stopOrderPolling()
+    }
+  } catch {
+    // 查询抖动时继续轮询，让订单详情自然收敛到最终状态。
+  } finally {
+    orderPollInFlight = false
+  }
+}
+
+function startOrderPolling(orderId: string, token: string) {
+  orderPollContext = { orderId, token }
+  if (orderPollTimer) return
+  orderPollTimer = setInterval(() => {
+    void refreshOrderStatus()
+  }, 3000)
+}
+
 const copyPayload = computed(() => {
   if (!order.value) return ''
   const segments: string[] = []
@@ -167,6 +235,7 @@ const copyPayload = computed(() => {
 
 
 async function loadOrder() {
+  stopOrderPolling()
   const orderId = route.query.orderId as string
   const token = route.query.token as string
   if (!orderId || !token) {
@@ -176,30 +245,11 @@ async function loadOrder() {
   }
   try {
     const res = await getPayStatus(orderId, token)
-    order.value = {
-      id: res.orderId,
-      orderNo: res.orderNo || '',
-      productId: '',
-      productTitle: res.productTitle || '',
-      productName: res.productTitle || '',
-      priceCents: res.amountCents || 0,
-      amountCents: res.amountCents || 0,
-      paidCents: res.amountCents || 0,
-      currency: res.currency || 'CNY',
-      status: res.status as Order['status'],
-      fulfillmentMode: res.fulfillmentMode,
-      delivery: res.delivery,
-      cards: res.cards || [],
-      items: res.items || [],
-      expiresAt: res.expiresAt,
-      createdAt: '',
-      buyerEmail: res.buyerEmail,
-      buyerContact: res.buyerContact,
-      paymentRef: res.paymentRef,
-      paidAt: res.paidAt,
-      issuedAt: res.issuedAt,
-      deliveryVisibility: res.deliveryVisibility,
-      deliveryMessage: res.deliveryMessage,
+    order.value = buildOrderState(res)
+    if (pollableStatuses.has(res.status)) {
+      startOrderPolling(orderId, token)
+    } else if (terminalStatuses.has(res.status)) {
+      stopOrderPolling()
     }
   } catch (err: any) {
     error.value = err.message || '查询订单失败'
@@ -221,6 +271,10 @@ function copyDelivery(event: Event) {
 onMounted(() => {
   loadShopConfig()
   loadOrder()
+})
+
+onBeforeUnmount(() => {
+  stopOrderPolling()
 })
 </script>
 

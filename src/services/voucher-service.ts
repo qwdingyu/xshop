@@ -61,6 +61,32 @@ export type BalanceTransactionList = {
   }>;
 };
 
+export type UserBalanceFilter = {
+  /** 邮箱精确匹配或子串（不区分大小写，按小写规范化后 LIKE） */
+  email?: string;
+  /** 仅返回余额大于 0 的账户 */
+  positiveOnly?: boolean;
+  limit?: number;
+  offset?: number;
+};
+
+export type UserBalanceList = {
+  total: number;
+  items: Array<{
+    email: string;
+    balanceCents: number;
+    totalDepositedCents: number;
+    totalSpentCents: number;
+    updatedAt: string;
+  }>;
+};
+
+export type AdjustUserBalanceResult = {
+  email: string;
+  balanceCents: number;
+  amountCents: number;
+};
+
 type BalanceTxType = "voucher_redeem" | "recharge" | "order_spend" | "refund" | "adjustment";
 
 type BalanceTxOptions = {
@@ -354,36 +380,138 @@ export async function deductBalance(
 }
 
 /**
+ * 管理端分页列出 user_balances 账户（按邮箱聚合的真实余额，非流水估算）。
+ * 默认按余额降序，便于运营先看到大额账户。
+ */
+export async function listUserBalances(
+  db: DbType,
+  filter: UserBalanceFilter = {},
+): Promise<UserBalanceList> {
+  const limit = Math.min(Math.max(Number(filter.limit || 50), 1), 200);
+  const offset = Math.max(Number(filter.offset || 0), 0);
+  const conditions: SQL<unknown>[] = [];
+
+  const emailRaw = (filter.email || "").trim().toLowerCase();
+  if (emailRaw) {
+    const escaped = emailRaw.replace(/[\\%_]/g, "\\$&");
+    conditions.push(sql`${userBalances.email} LIKE ${`%${escaped}%`} ESCAPE '\\'`);
+  }
+  if (filter.positiveOnly) {
+    conditions.push(sql`${userBalances.balanceCents} > 0`);
+  }
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const [countRow] = await db
+    .select({ count: count() })
+    .from(userBalances)
+    .where(where);
+
+  const rows = await db
+    .select({
+      email: userBalances.email,
+      balanceCents: userBalances.balanceCents,
+      totalDepositedCents: userBalances.totalDepositedCents,
+      totalSpentCents: userBalances.totalSpentCents,
+      updatedAt: userBalances.updatedAt,
+    })
+    .from(userBalances)
+    .where(where)
+    .orderBy(desc(userBalances.balanceCents), desc(userBalances.updatedAt))
+    .limit(limit)
+    .offset(offset);
+
+  return { total: countRow?.count ?? 0, items: rows };
+}
+
+/**
  * 管理员手工为指定邮箱增加余额（退款/补偿/赠送场景）。
  * upsert 模式：用户不存在则创建，已存在则追加。
  */
 export async function addBalance(db: DbType, email: string, amountCents: number, note?: string) {
+  const result = await adjustUserBalance(db, email, amountCents, note || "管理员手工调账");
+  return result;
+}
+
+/**
+ * 管理员调账：amountCents 为正表示加款，为负表示扣款。
+ *
+ * - 加款：upsert 账户，累计 totalDepositedCents，写 adjustment 流水。
+ * - 扣款：条件 UPDATE（余额充足才成功），不改 totalSpent/totalDeposited（非真实消费/充值），写 adjustment 流水。
+ * - 金额为 0 或非法时拒绝；扣款不足时抛错，由路由层转 400。
+ */
+export async function adjustUserBalance(
+  db: DbType,
+  email: string,
+  amountCents: number,
+  note: string,
+): Promise<AdjustUserBalanceResult> {
+  if (!Number.isInteger(amountCents) || amountCents === 0) {
+    throw new Error("调账金额必须是非零整数（分）");
+  }
+  const noteText = (note || "").trim();
+  if (noteText.length < 2 || noteText.length > 200) {
+    throw new Error("调账备注需 2–200 字，便于审计");
+  }
+
   const nowStr = new Date().toISOString();
   const normalizedEmail = email.trim().toLowerCase();
-  await withDbTransaction(db, async (tx) => {
-    const [balanceRow] = await tx
-      .insert(userBalances)
-      .values({
-        email: normalizedEmail,
-        balanceCents: amountCents,
-        totalDepositedCents: amountCents,
-        totalSpentCents: 0,
+  if (!normalizedEmail || !normalizedEmail.includes("@")) {
+    throw new Error("邮箱无效");
+  }
+
+  if (amountCents > 0) {
+    return withDbTransaction(db, async (tx) => {
+      const [balanceRow] = await tx
+        .insert(userBalances)
+        .values({
+          email: normalizedEmail,
+          balanceCents: amountCents,
+          totalDepositedCents: amountCents,
+          totalSpentCents: 0,
+          updatedAt: nowStr,
+        })
+        .onConflictDoUpdate({
+          target: userBalances.email,
+          set: {
+            balanceCents: sql`${userBalances.balanceCents} + ${amountCents}`,
+            totalDepositedCents: sql`${userBalances.totalDepositedCents} + ${amountCents}`,
+            updatedAt: nowStr,
+          },
+        })
+        .returning({ balanceCents: userBalances.balanceCents });
+
+      await writeBalanceTransaction(tx, normalizedEmail, "adjustment", amountCents, balanceRow.balanceCents, {
+        referenceType: "admin",
+        note: noteText,
+      });
+      return { email: normalizedEmail, balanceCents: balanceRow.balanceCents, amountCents };
+    });
+  }
+
+  // 扣款：禁止把余额扣成负数
+  const debit = -amountCents;
+  return withDbTransaction(db, async (tx) => {
+    const result = await tx
+      .update(userBalances)
+      .set({
+        balanceCents: sql`${userBalances.balanceCents} - ${debit}`,
         updatedAt: nowStr,
       })
-      .onConflictDoUpdate({
-        target: userBalances.email,
-        set: {
-          balanceCents: sql`${userBalances.balanceCents} + ${amountCents}`,
-          totalDepositedCents: sql`${userBalances.totalDepositedCents} + ${amountCents}`,
-          updatedAt: nowStr,
-        },
-      })
+      .where(and(
+        eq(userBalances.email, normalizedEmail),
+        sql`${userBalances.balanceCents} >= ${debit}`,
+      ))
       .returning({ balanceCents: userBalances.balanceCents });
 
-    await writeBalanceTransaction(tx, normalizedEmail, "adjustment", amountCents, balanceRow.balanceCents, {
+    if (result.length === 0) {
+      throw new Error("余额不足或账户不存在，无法扣款");
+    }
+
+    await writeBalanceTransaction(tx, normalizedEmail, "adjustment", amountCents, result[0].balanceCents, {
       referenceType: "admin",
-      note: note || "管理员手工调账",
+      note: noteText,
     });
+    return { email: normalizedEmail, balanceCents: result[0].balanceCents, amountCents };
   });
 }
 

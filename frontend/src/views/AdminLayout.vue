@@ -111,7 +111,7 @@ const menuItems = [
   { name: 'AdminOrders', to: '/admin/orders', label: '订单', icon: '&#x1F4CB;' },
   { name: 'AdminCoupons', to: '/admin/coupons', label: '优惠码', icon: '&#x1F3AB;' },
   { name: 'AdminVouchers', to: '/admin/vouchers', label: '充值码', icon: '&#x1F39F;' },
-  { name: 'AdminBalance', to: '/admin/balance', label: '余额', icon: '&#x1F4B0;' },
+  { name: 'AdminBalance', to: '/admin/balance', label: '用户余额', icon: '&#x1F4B0;' },
   { name: 'AdminRecharges', to: '/admin/recharges', label: '充值订单', icon: '&#x1F4B5;' },
   { name: 'AdminConfig', to: '/admin/config', label: '系统配置', icon: '&#x2699;&#xFE0F;' },
   { name: 'AdminPayment', to: '/admin/payment', label: '支付', icon: '&#x1F4B3;' },

@@ -147,12 +147,18 @@ onBeforeUnmount(() => {
 
 .modal-body {
   min-height: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 14px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+/* 子级 form 需要吃满高度时（如商品编辑粘性脚部） */
+.modal-body > form {
+  min-height: 0;
 }
 
 .modal-actions {

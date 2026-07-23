@@ -22,6 +22,10 @@ import type {
   AdminUpdateCouponBody,
   AdminBalanceTransactionFilter,
   AdminBalanceTransactionListResult,
+  AdminUserBalanceFilter,
+  AdminUserBalanceListResult,
+  AdminAdjustUserBalanceBody,
+  AdminAdjustUserBalanceResult,
   AdminVoucherFilter,
   AdminVoucherListResult,
   AdminVoucherStats,
@@ -537,6 +541,27 @@ export function fetchAdminBalanceTransactions(
   params?: AdminBalanceTransactionFilter,
 ): Promise<AdminBalanceTransactionListResult> {
   return adminRequest(token, '/api/admin/balance-transactions', { params: params as Record<string, string | number | Array<string | number>> | undefined })
+}
+
+// ─── User Balances ───
+
+export function fetchAdminUserBalances(
+  token: string,
+  params?: AdminUserBalanceFilter,
+): Promise<AdminUserBalanceListResult> {
+  return adminRequest(token, '/api/admin/user-balances', {
+    params: params as Record<string, string | number | Array<string | number>> | undefined,
+  })
+}
+
+export function adjustAdminUserBalance(
+  token: string,
+  body: AdminAdjustUserBalanceBody,
+): Promise<AdminAdjustUserBalanceResult> {
+  return adminRequest(token, '/api/admin/user-balances/adjust', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
 }
 
 // ─── Recharge Vouchers ───

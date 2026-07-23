@@ -23,6 +23,8 @@
     "browser:chromium-path": "node scripts/resolve-local-chromium.mjs",
     "check": "node scripts/01-check.mjs",
     "security:scan": "node scripts/25-scan-secrets.mjs",
+    "oss:export": "node scripts/export-oss.mjs",
+    "oss:sync": "node scripts/export-oss.mjs --push --force",
     "deploy:full": "node scripts/02-deploy-full.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:turso": "node scripts/migrate.mjs",

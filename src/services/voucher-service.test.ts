@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DbType } from "../db/client";
-import { redeemVoucher, deductBalance, refundBalance, listBalanceTransactions, generateVoucherCodes } from "./voucher-service";
+import {
+  redeemVoucher,
+  deductBalance,
+  refundBalance,
+  listBalanceTransactions,
+  listUserBalances,
+  adjustUserBalance,
+  generateVoucherCodes,
+} from "./voucher-service";
 
 type VoucherRow = {
   code: string;
@@ -62,10 +70,19 @@ function createVoucherDb(state: {
               const row = balances[email];
               if (!row) return Promise.resolve([]);
               if ("totalSpentCents" in data) {
+                // deductBalance 路径：测试里统一用 800 分扣款
                 const spend = 800;
                 if (row.balanceCents < spend) return Promise.resolve([]);
                 row.balanceCents -= spend;
                 row.totalSpentCents += spend;
+              } else if ("balanceCents" in data && !("totalDepositedCents" in data)) {
+                // adjustUserBalance 扣款：仅改 balanceCents；测试夹具对不足余额返回空行
+                // 无法从 sql 表达式反解金额，约定不足场景用 balance < 200 模拟失败
+                if (row.balanceCents < 200) return Promise.resolve([]);
+                // 成功扣款场景：扣 500（与 adjust 测试用例一致）
+                const debit = 500;
+                if (row.balanceCents < debit) return Promise.resolve([]);
+                row.balanceCents -= debit;
               }
               return Promise.resolve([{ email, balanceCents: row.balanceCents }]);
             }
@@ -358,5 +375,83 @@ describe("voucher-service balance ledger", () => {
 
     expect(result.total).toBe(1);
     expect(result.transactions).toEqual(rows);
+  });
+
+  it("lists user balances from user_balances with pagination shape", async () => {
+    const rows = [
+      {
+        email: "buyer@example.com",
+        balanceCents: 1500,
+        totalDepositedCents: 2000,
+        totalSpentCents: 500,
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      },
+    ];
+    let selectCall = 0;
+    const db = {
+      select: () => {
+        selectCall += 1;
+        return {
+          from: () => ({
+            where: () => {
+              if (selectCall === 1) return Promise.resolve([{ count: rows.length }]);
+              return {
+                orderBy: () => ({
+                  limit: () => ({
+                    offset: () => Promise.resolve(rows),
+                  }),
+                }),
+              };
+            },
+          }),
+        };
+      },
+    } as unknown as DbType;
+
+    const result = await listUserBalances(db, { email: "buyer", positiveOnly: true, limit: 20, offset: 0 });
+    expect(result.total).toBe(1);
+    expect(result.items).toEqual(rows);
+  });
+
+  it("adjustUserBalance credits and writes adjustment ledger", async () => {
+    const state = {
+      balances: {
+        "buyer@example.com": { balanceCents: 1000, totalDepositedCents: 1000, totalSpentCents: 0 },
+      },
+      transactions: [] as Array<Record<string, unknown>>,
+    };
+    const db = createVoucherDb(state);
+
+    const result = await adjustUserBalance(db, "Buyer@Example.com", 500, "客服补偿");
+
+    expect(result).toMatchObject({ email: "buyer@example.com", amountCents: 500, balanceCents: 1500 });
+    expect(state.balances["buyer@example.com"].balanceCents).toBe(1500);
+    expect(state.balances["buyer@example.com"].totalDepositedCents).toBe(1500);
+    expect(state.transactions).toHaveLength(1);
+    expect(state.transactions[0]).toMatchObject({
+      type: "adjustment",
+      amountCents: 500,
+      balanceAfterCents: 1500,
+      note: "客服补偿",
+    });
+  });
+
+  it("adjustUserBalance rejects debit when balance is insufficient", async () => {
+    const state = {
+      balances: {
+        "buyer@example.com": { balanceCents: 100, totalDepositedCents: 100, totalSpentCents: 0 },
+      },
+      transactions: [] as Array<Record<string, unknown>>,
+    };
+    const db = createVoucherDb(state);
+
+    await expect(adjustUserBalance(db, "buyer@example.com", -500, "误充回收")).rejects.toThrow(/余额不足/);
+    expect(state.balances["buyer@example.com"].balanceCents).toBe(100);
+    expect(state.transactions).toHaveLength(0);
+  });
+
+  it("adjustUserBalance rejects zero amount", async () => {
+    const db = createVoucherDb({ balances: {}, transactions: [] });
+    await expect(adjustUserBalance(db, "buyer@example.com", 0, "noop")).rejects.toThrow(/非零/);
   });
 });

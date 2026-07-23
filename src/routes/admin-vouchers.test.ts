@@ -7,17 +7,22 @@ const listVoucherCodes = vi.fn();
 const generateVoucherCodes = vi.fn();
 const revokeVoucherCodes = vi.fn();
 const listRechargeOrders = vi.fn();
+const listUserBalances = vi.fn();
+const adjustUserBalance = vi.fn();
+const writeAdminAudit = vi.fn();
 
 vi.mock("../services/voucher-service", () => ({
   generateVoucherCodes: (...args: unknown[]) => generateVoucherCodes(...args),
   getVoucherStats: vi.fn(),
   listBalanceTransactions: vi.fn(),
+  listUserBalances: (...args: unknown[]) => listUserBalances(...args),
+  adjustUserBalance: (...args: unknown[]) => adjustUserBalance(...args),
   listVoucherCodes: (...args: unknown[]) => listVoucherCodes(...args),
   revokeVoucherCodes: (...args: unknown[]) => revokeVoucherCodes(...args),
 }));
 
 vi.mock("../services/audit-service", () => ({
-  writeAdminAudit: vi.fn().mockResolvedValue(undefined),
+  writeAdminAudit: (...args: unknown[]) => writeAdminAudit(...args),
 }));
 
 vi.mock("../services/recharge-service", () => ({
@@ -47,6 +52,11 @@ beforeEach(() => {
   revokeVoucherCodes.mockResolvedValue(0);
   listRechargeOrders.mockReset();
   listRechargeOrders.mockResolvedValue({ total: 0, items: [] });
+  listUserBalances.mockReset();
+  listUserBalances.mockResolvedValue({ total: 0, items: [] });
+  adjustUserBalance.mockReset();
+  writeAdminAudit.mockReset();
+  writeAdminAudit.mockResolvedValue(undefined);
 });
 
 describe("adminVoucherRoute", () => {
@@ -131,5 +141,74 @@ describe("adminVoucherRoute", () => {
       limit: 20,
       offset: 20,
     });
+  });
+
+  it("lists user balances with email and positiveOnly filters", async () => {
+    listUserBalances.mockResolvedValueOnce({
+      total: 1,
+      items: [{ email: "buyer@example.com", balanceCents: 1200, totalDepositedCents: 2000, totalSpentCents: 800, updatedAt: "2026-01-01T00:00:00.000Z" }],
+    });
+
+    const res = await createApp().request("/api/admin/user-balances?email=buyer&positiveOnly=1&limit=20&offset=0");
+
+    expect(res.status).toBe(200);
+    expect(listUserBalances).toHaveBeenCalledWith({}, {
+      email: "buyer",
+      positiveOnly: true,
+      limit: 20,
+      offset: 0,
+    });
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      total: 1,
+      items: [expect.objectContaining({ email: "buyer@example.com", balanceCents: 1200 })],
+    });
+  });
+
+  it("rejects zero-amount balance adjustments", async () => {
+    const res = await createApp().request("/api/admin/user-balances/adjust", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "buyer@example.com", amountCents: 0, note: "test note" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(adjustUserBalance).not.toHaveBeenCalled();
+  });
+
+  it("credits balance and writes admin audit on successful adjustment", async () => {
+    adjustUserBalance.mockResolvedValueOnce({
+      email: "buyer@example.com",
+      amountCents: 500,
+      balanceCents: 1500,
+    });
+
+    const res = await createApp().request("/api/admin/user-balances/adjust", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "Buyer@Example.com", amountCents: 500, note: "客服补偿" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(adjustUserBalance).toHaveBeenCalledWith({}, "Buyer@Example.com", 500, "客服补偿");
+    expect(writeAdminAudit).toHaveBeenCalledWith({}, expect.objectContaining({
+      action: "adjust_user_balance",
+      targetType: "user_balance",
+      targetId: "buyer@example.com",
+    }));
+  });
+
+  it("returns 400 when service rejects debit for insufficient balance", async () => {
+    adjustUserBalance.mockRejectedValueOnce(new Error("余额不足或账户不存在，无法扣款"));
+
+    const res = await createApp().request("/api/admin/user-balances/adjust", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "buyer@example.com", amountCents: -9999, note: "误充回收" }),
+    });
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ ok: false });
+    expect(writeAdminAudit).not.toHaveBeenCalled();
   });
 });

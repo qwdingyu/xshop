@@ -5,9 +5,11 @@ import { fail, getDb, ok, safeJsonBody } from "../lib/http";
 import { getIpHash } from "../lib/security";
 import { writeAdminAudit } from "../services/audit-service";
 import {
+  adjustUserBalance,
   generateVoucherCodes,
   getVoucherStats,
   listBalanceTransactions,
+  listUserBalances,
   listVoucherCodes,
   revokeVoucherCodes,
 } from "../services/voucher-service";
@@ -46,6 +48,23 @@ const balanceTransactionQuerySchema = z.object({
   referenceId: z.string().trim().max(120).optional().or(z.literal("")),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
+});
+
+const userBalanceQuerySchema = z.object({
+  email: z.string().trim().max(160).optional().or(z.literal("")),
+  positiveOnly: z
+    .union([z.literal("1"), z.literal("true"), z.literal("0"), z.literal("false"), z.literal("")])
+    .optional()
+    .or(z.literal("")),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const adjustBalanceSchema = z.object({
+  email: z.string().trim().email().max(160),
+  /** 调账金额（分）。正数加款，负数扣款；禁止 0。 */
+  amountCents: z.number().int().min(-99999999).max(99999999).refine((n) => n !== 0, { message: "金额不能为 0" }),
+  note: z.string().trim().min(2).max(200),
 });
 
 const rechargeOrderQuerySchema = z.object({
@@ -127,6 +146,89 @@ adminVoucherRoute.get("/balance-transactions", async (c) => {
     offset: query.data.offset,
     transactions: result.transactions,
   });
+});
+
+/**
+ * 用户余额账户列表（user_balances 真实余额，非流水估算）。
+ * 支持邮箱子串筛选、仅显示正余额、分页。
+ */
+adminVoucherRoute.get("/user-balances", async (c) => {
+  const query = userBalanceQuerySchema.safeParse({
+    email: c.req.query("email") || "",
+    positiveOnly: c.req.query("positiveOnly") || "",
+    limit: c.req.query("limit") || "50",
+    offset: c.req.query("offset") || "0",
+  });
+  if (!query.success) return fail(c, "查询参数无效", 400, query.error.flatten());
+
+  const positiveOnly =
+    query.data.positiveOnly === "1" || query.data.positiveOnly === "true";
+
+  const result = await listUserBalances(getDb(c), {
+    email: query.data.email || undefined,
+    positiveOnly,
+    limit: query.data.limit,
+    offset: query.data.offset,
+  });
+
+  return ok(c, {
+    total: result.total,
+    limit: query.data.limit,
+    offset: query.data.offset,
+    items: result.items,
+  });
+});
+
+/**
+ * 管理员手工调账：正数加款 / 负数扣款，必须写备注，并记入 admin 审计与余额流水。
+ */
+adminVoucherRoute.post("/user-balances/adjust", async (c) => {
+  const body = adjustBalanceSchema.safeParse(await safeJsonBody(c));
+  if (!body.success) return fail(c, "参数无效", 400, body.error.flatten());
+
+  const db = getDb(c);
+  try {
+    const result = await adjustUserBalance(
+      db,
+      body.data.email,
+      body.data.amountCents,
+      body.data.note,
+    );
+
+    await writeAdminAudit(db, {
+      action: "adjust_user_balance",
+      targetType: "user_balance",
+      targetId: result.email,
+      metadata: {
+        amountCents: result.amountCents,
+        balanceAfterCents: result.balanceCents,
+        note: body.data.note,
+      },
+      ipHash: await getIpHash(c),
+    });
+
+    return ok(c, {
+      email: result.email,
+      amountCents: result.amountCents,
+      balanceCents: result.balanceCents,
+      message: result.amountCents > 0
+        ? `已为 ${result.email} 加款，当前余额 ${result.balanceCents} 分`
+        : `已为 ${result.email} 扣款，当前余额 ${result.balanceCents} 分`,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "调账失败";
+    // 业务拒绝（余额不足、参数）走 400；未知错误继续上抛由全局处理
+    if (
+      message.includes("余额不足")
+      || message.includes("账户不存在")
+      || message.includes("金额")
+      || message.includes("备注")
+      || message.includes("邮箱")
+    ) {
+      return fail(c, message, 400);
+    }
+    throw error;
+  }
 });
 
 adminVoucherRoute.get("/recharge-orders", async (c) => {

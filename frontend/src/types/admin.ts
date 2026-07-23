@@ -395,6 +395,44 @@ export interface AdminBalanceTransactionListResult {
   transactions: AdminBalanceTransaction[]
 }
 
+/** 用户余额账户（user_balances 表真实余额） */
+export interface AdminUserBalance {
+  email: string
+  balanceCents: number
+  totalDepositedCents: number
+  totalSpentCents: number
+  updatedAt: string
+}
+
+export interface AdminUserBalanceFilter {
+  email?: string
+  /** 仅余额 > 0；传 '1' / 'true' */
+  positiveOnly?: string
+  limit?: number
+  offset?: number
+}
+
+export interface AdminUserBalanceListResult {
+  total: number
+  limit: number
+  offset: number
+  items: AdminUserBalance[]
+}
+
+export interface AdminAdjustUserBalanceBody {
+  email: string
+  /** 分；正数加款，负数扣款 */
+  amountCents: number
+  note: string
+}
+
+export interface AdminAdjustUserBalanceResult {
+  email: string
+  amountCents: number
+  balanceCents: number
+  message: string
+}
+
 export type AdminVoucherStatus = 'active' | 'used' | 'expired' | 'revoked'
 
 export interface AdminVoucher {

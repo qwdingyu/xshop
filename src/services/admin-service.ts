@@ -427,92 +427,97 @@ export async function getAdminSummary(
   const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
   const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString();
 
-  const [productsRow] = await db
-    .select({ count: count() })
-    .from(products);
+  const sumTodayIncomeByProvider = async (provider: string): Promise<number> => {
+    const [row] = await db
+      .select({ total: sql<number>`COALESCE(SUM(${orders.amountCents}), 0)` })
+      .from(orders)
+      .where(and(
+        or(eq(orders.status, "paid"), eq(orders.status, "issued")),
+        eq(orders.currency, "CNY"),
+        sql`${orderIncomeAt} >= ${todayStart}`,
+        sql`${orderIncomeAt} < ${todayEnd}`,
+        eq(orders.paymentProvider, provider),
+      ));
+    return Number(row?.total || 0);
+  };
 
-  const [totalCardsRow] = await db
-    .select({ count: count() })
-    .from(cards);
+  const [
+    productsRows,
+    totalCardsRows,
+    availableCardsRows,
+    totalOrdersRows,
+    pendingOrdersRows,
+    ordersTodayRows,
+    issuedTodayRows,
+    totalIncomeRows,
+    todayIncomeRows,
+    [todayAlipayCents, todayEasyPayCents],
+    lowStockProducts,
+  ] = await Promise.all([
+    db
+      .select({ count: count() })
+      .from(products),
+    db
+      .select({ count: count() })
+      .from(cards),
+    db
+      .select({ count: count() })
+      .from(cards)
+      .where(and(
+        eq(cards.status, "available"),
+        or(sql`${cards.expiresAt} IS NULL`, sql`${cards.expiresAt} > replace(datetime('now'), ' ', 'T') || 'Z'`),
+      )),
+    db
+      .select({ count: count() })
+      .from(orders),
+    db
+      .select({ count: count() })
+      .from(orders)
+      .where(or(eq(orders.status, "pending"), eq(orders.status, "paid"))),
+    db
+      .select({ count: count() })
+      .from(orders)
+      .where(sql`date(${orders.createdAt}) = date('now')`),
+    db
+      .select({ count: count() })
+      .from(orders)
+      .where(and(
+        eq(orders.status, "issued"),
+        sql`date(${orders.issuedAt}) = date('now')`
+      )),
+    db
+      .select({ total: sql<number>`COALESCE(SUM(${orders.amountCents}), 0)` })
+      .from(orders)
+      .where(and(
+        or(eq(orders.status, "paid"), eq(orders.status, "issued")),
+        eq(orders.currency, "CNY"),
+      )),
+    db
+      .select({ total: sql<number>`COALESCE(SUM(${orders.amountCents}), 0)` })
+      .from(orders)
+      .where(and(
+        or(eq(orders.status, "paid"), eq(orders.status, "issued")),
+        eq(orders.currency, "CNY"),
+        sql`${orderIncomeAt} >= ${todayStart}`,
+        sql`${orderIncomeAt} < ${todayEnd}`,
+      )),
+    Promise.all([
+      sumTodayIncomeByProvider("alipay"),
+      sumTodayIncomeByProvider("easypay"),
+    ]).catch(() => [0, 0] as [number, number]),
+    getLowStockProducts(db),
+  ]);
 
-  const [availableCardsRow] = await db
-    .select({ count: count() })
-    .from(cards)
-    .where(and(
-      eq(cards.status, "available"),
-      or(sql`${cards.expiresAt} IS NULL`, sql`${cards.expiresAt} > replace(datetime('now'), ' ', 'T') || 'Z'`),
-    ));
-
-  const [totalOrdersRow] = await db
-    .select({ count: count() })
-    .from(orders);
-
-  const [pendingOrdersRow] = await db
-    .select({ count: count() })
-    .from(orders)
-    .where(or(eq(orders.status, "pending"), eq(orders.status, "paid")));
-
-  const [ordersTodayRow] = await db
-    .select({ count: count() })
-    .from(orders)
-    .where(sql`date(${orders.createdAt}) = date('now')`);
-
-  const [issuedTodayRow] = await db
-    .select({ count: count() })
-    .from(orders)
-    .where(and(
-      eq(orders.status, "issued"),
-      sql`date(${orders.issuedAt}) = date('now')`
-    ));
-
-  // ── 收入统计（对标 TGPays dashboard dashboard.php）──
-  // 总收入：所有已支付 / 已发卡订单
-  const [totalIncomeRow] = await db
-    .select({ total: sql<number>`COALESCE(SUM(${orders.amountCents}), 0)` })
-    .from(orders)
-    .where(and(
-      or(eq(orders.status, "paid"), eq(orders.status, "issued")),
-      eq(orders.currency, "CNY"),
-    ));
-
-  // 今日收入
-  const [todayIncomeRow] = await db
-    .select({ total: sql<number>`COALESCE(SUM(${orders.amountCents}), 0)` })
-    .from(orders)
-    .where(and(
-      or(eq(orders.status, "paid"), eq(orders.status, "issued")),
-      eq(orders.currency, "CNY"),
-      sql`${orderIncomeAt} >= ${todayStart}`,
-      sql`${orderIncomeAt} < ${todayEnd}`,
-    ));
-
-  // 今日各渠道收入
+  const [productsRow] = productsRows;
+  const [totalCardsRow] = totalCardsRows;
+  const [availableCardsRow] = availableCardsRows;
+  const [totalOrdersRow] = totalOrdersRows;
+  const [pendingOrdersRow] = pendingOrdersRows;
+  const [ordersTodayRow] = ordersTodayRows;
+  const [issuedTodayRow] = issuedTodayRows;
+  const [totalIncomeRow] = totalIncomeRows;
+  const [todayIncomeRow] = todayIncomeRows;
   const todayIncomeCents = Number(todayIncomeRow?.total || 0);
-  let todayAlipayCents = 0;
-  let todayEasyPayCents = 0;
-
-  try {
-    const sumTodayIncomeByProvider = async (provider: string): Promise<number> => {
-      const [row] = await db
-        .select({ total: sql<number>`COALESCE(SUM(${orders.amountCents}), 0)` })
-        .from(orders)
-        .where(and(
-          or(eq(orders.status, "paid"), eq(orders.status, "issued")),
-          eq(orders.currency, "CNY"),
-          sql`${orderIncomeAt} >= ${todayStart}`,
-          sql`${orderIncomeAt} < ${todayEnd}`,
-          eq(orders.paymentProvider, provider),
-        ));
-      return Number(row?.total || 0);
-    };
-
-    todayAlipayCents = await sumTodayIncomeByProvider("alipay");
-    todayEasyPayCents = await sumTodayIncomeByProvider("easypay");
-  } catch {
-    // 各渠道查询失败不阻塞概览
-  }
-
-  const lowStockProducts = await getLowStockProducts(db);
 
   return {
     products: productsRow?.count ?? 0,
