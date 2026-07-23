@@ -512,6 +512,8 @@ export interface AdminSystemConfigDefinition {
   label: string
   description?: string
   type: 'string' | 'boolean' | 'integer'
+  /** integer 存储单位：cents=库内分、Admin 按元编辑；缺省为普通整数 */
+  unit?: 'cents' | 'count'
   sensitive?: boolean
   configured?: boolean
   defaultValue?: string

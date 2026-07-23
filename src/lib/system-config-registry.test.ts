@@ -92,6 +92,34 @@ describe("system-config-registry", () => {
     })).toEqual({ enabled: true, minCents: 100, maxCents: 500000 });
   });
 
+  it("充值限额定义为 unit=cents，库内仍以分为整数校验", () => {
+    const minDef = definitions.find((item) => item.key === "balance_recharge_min_cents");
+    const maxDef = definitions.find((item) => item.key === "balance_recharge_max_cents");
+    expect(minDef).toMatchObject({ unit: "cents", type: "integer", defaultValue: "100" });
+    expect(maxDef).toMatchObject({ unit: "cents", type: "integer", defaultValue: "500000" });
+    expect(String(minDef?.label || "")).toContain("元");
+    expect(String(maxDef?.label || "")).toContain("元");
+    expect(String(minDef?.label || "")).not.toContain("（分）");
+    // 管理员按元理解：5000 元 = 500000 分，normalize 仍收分整数
+    expect(normalizeSystemConfigValue("balance_recharge_max_cents", "500000")).toEqual({
+      ok: true,
+      value: "500000",
+    });
+    expect(normalizeSystemConfigValue("balance_recharge_max_cents", "5000.00").ok).toBe(false);
+    // 越界错误按元提示，避免把 min/max 分整数直接甩给商户
+    const belowMin = normalizeSystemConfigValue("balance_recharge_min_cents", "0");
+    expect(belowMin.ok).toBe(false);
+    if (!belowMin.ok) {
+      expect(belowMin.message).toContain("0.01 元");
+      expect(belowMin.message).not.toMatch(/不能小于 1$/);
+    }
+    const aboveMax = normalizeSystemConfigValue("balance_recharge_max_cents", "10000001");
+    expect(aboveMax.ok).toBe(false);
+    if (!aboveMax.ok) {
+      expect(aboveMax.message).toContain("100000.00 元");
+    }
+  });
+
   it("充值最高金额低于最低金额时以最低金额收口", () => {
     expect(buildBalanceRechargeConfig({
       balance_recharge_enabled: "true",

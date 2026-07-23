@@ -83,7 +83,7 @@ describe("adminSystemConfigRoute", () => {
     const res = await app.request("/", {}, env);
     const body = await res.json() as {
       config: Record<string, string>;
-      definitions: Array<{ key: string; sensitive?: boolean; configured?: boolean }>;
+      definitions: Array<{ key: string; sensitive?: boolean; configured?: boolean; unit?: string; label?: string }>;
     };
 
     expect(res.status).toBe(200);
@@ -93,6 +93,17 @@ describe("adminSystemConfigRoute", () => {
       expect.objectContaining({ key: "resend_api_key", sensitive: true, configured: true }),
       expect.objectContaining({ key: "turnstile_secret_key", sensitive: true, configured: true }),
     ]));
+    // 金额类 integer 必须透出 unit=cents，且 label 用「元」而不是「分」
+    expect(body.definitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "balance_recharge_min_cents", unit: "cents" }),
+      expect.objectContaining({ key: "balance_recharge_max_cents", unit: "cents" }),
+    ]));
+    for (const def of body.definitions) {
+      if (def.key === "balance_recharge_min_cents" || def.key === "balance_recharge_max_cents") {
+        expect(def.label || "").toContain("元");
+        expect(def.label || "").not.toContain("（分）");
+      }
+    }
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain("re_db_secret");
     expect(serialized).not.toContain("turnstile-db-secret");

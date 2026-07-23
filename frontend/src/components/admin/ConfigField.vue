@@ -9,9 +9,21 @@
         :disabled="status === 'saving'"
         @change="emitChange(($event.target as HTMLInputElement).checked ? 'true' : 'false')"
       />
+      <!-- 金额类 integer（unit=cents）：界面按「元」编辑，提交仍为分整数字符串 -->
+      <input
+        v-else-if="isCentsMoney"
+        type="number"
+        inputmode="decimal"
+        step="0.01"
+        min="0"
+        :value="displayYuan"
+        :disabled="status === 'saving'"
+        @change="onYuanChange(($event.target as HTMLInputElement).value)"
+      />
       <input
         v-else-if="item.type === 'integer'"
         type="number"
+        step="1"
         :value="value"
         :disabled="status === 'saving'"
         @change="emitChange(($event.target as HTMLInputElement).value)"
@@ -34,9 +46,14 @@
     </label>
     <p v-if="item.description" class="config-help">{{ item.description }}</p>
     <p v-if="item.effect" class="config-effect">{{ item.effect }}</p>
-    <p v-if="item.type === 'integer'" class="config-range">
+    <p v-if="isCentsMoney" class="config-range">
+      范围：{{ rangeYuanMin }} - {{ rangeYuanMax }} 元
+      <span class="config-range-hint">（按元填写，保存为分）</span>
+    </p>
+    <p v-else-if="item.type === 'integer'" class="config-range">
       范围：{{ item.min ?? '不限' }} - {{ item.max ?? '不限' }}
     </p>
+    <p v-if="localError" class="config-local-error" role="alert">{{ localError }}</p>
     <div class="config-actions">
       <span v-if="statusText" class="config-status" :class="`config-status-${status}`">{{ statusText }}</span>
       <button class="btn btn-ghost btn-xs" type="button" :disabled="status === 'saving'" @click="$emit('reset', item.key)">重置默认</button>
@@ -45,8 +62,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { AdminSystemConfigDefinition } from '@/types/admin'
+import { formatCents, parseYuanToCents } from '@/utils/currency'
 
 type ConfigFieldStatus = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -62,9 +80,66 @@ const emit = defineEmits<{
   reset: [key: string]
 }>()
 
+const localError = ref('')
+
+/** 库内分为整数、UI 按人民币元展示的配置项 */
+const isCentsMoney = computed(() => props.item.type === 'integer' && props.item.unit === 'cents')
+
+const displayYuan = computed(() => {
+  if (!isCentsMoney.value) return props.value
+  const cents = Number(props.value)
+  if (!Number.isSafeInteger(cents)) return props.value
+  return formatCents(cents)
+})
+
+const rangeYuanMin = computed(() => {
+  if (props.item.min === undefined) return '不限'
+  return formatCents(props.item.min)
+})
+
+const rangeYuanMax = computed(() => {
+  if (props.item.max === undefined) return '不限'
+  return formatCents(props.item.max)
+})
+
 function emitChange(value: string) {
+  localError.value = ''
   emit('change', props.item.key, value)
 }
+
+/**
+ * 用户按元输入 → 转为分整数再交给保存链路。
+ * 非法金额不 emit，避免把「50」当成 50 分写进库。
+ */
+function onYuanChange(raw: string) {
+  localError.value = ''
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    localError.value = '请输入金额（元）'
+    return
+  }
+  const cents = parseYuanToCents(trimmed)
+  if (cents === null || cents < 0) {
+    localError.value = '请输入有效金额（元，最多两位小数）'
+    return
+  }
+  if (props.item.min !== undefined && cents < props.item.min) {
+    localError.value = `不能小于 ${formatCents(props.item.min)} 元`
+    return
+  }
+  if (props.item.max !== undefined && cents > props.item.max) {
+    localError.value = `不能大于 ${formatCents(props.item.max)} 元`
+    return
+  }
+  emitChange(String(cents))
+}
+
+watch(
+  () => props.value,
+  () => {
+    localError.value = ''
+  },
+)
 
 const statusText = computed(() => {
   if (props.status === 'saving') return '保存中…'
@@ -125,6 +200,17 @@ const statusText = computed(() => {
 
 .config-effect {
   color: var(--tg-text, #f0f2f5);
+}
+
+.config-range-hint {
+  color: var(--admin-accent-text, #fbbf24);
+}
+
+.config-local-error {
+  margin: 0;
+  font-size: 12px;
+  color: #fca5a5;
+  line-height: 1.4;
 }
 
 .config-label input[type='number'],

@@ -446,7 +446,7 @@ export async function adjustUserBalance(
   note: string,
 ): Promise<AdjustUserBalanceResult> {
   if (!Number.isInteger(amountCents) || amountCents === 0) {
-    throw new Error("调账金额必须是非零整数（分）");
+    throw new Error("调账金额必须是非零整数（币种最小单位）");
   }
   const noteText = (note || "").trim();
   if (noteText.length < 2 || noteText.length > 200) {

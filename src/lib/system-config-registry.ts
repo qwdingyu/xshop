@@ -5,6 +5,9 @@ import definitions from "./system-config-definitions.json";
 
 export type SystemConfigValueType = "string" | "integer" | "boolean";
 
+/** integer 存储单位；cents 表示后台 UI 按「元」编辑、库内仍是分 */
+export type SystemConfigIntegerUnit = "cents" | "count";
+
 export type SystemConfigDefinition = {
   key: string;
   label: string;
@@ -12,11 +15,14 @@ export type SystemConfigDefinition = {
   effect: string;
   scope: "public" | "admin";
   type: SystemConfigValueType;
+  /** 仅 type=integer：cents=金额（分存储，Admin 按元展示）；count/缺省=纯整数 */
+  unit?: SystemConfigIntegerUnit;
   sensitive?: boolean;
   configured?: boolean;
   defaultValue: string;
   format?: "email";
   maxLength?: number;
+  /** type=integer 时与存储单位一致（cents 时为分） */
   min?: number;
   max?: number;
   group?: string;
@@ -49,6 +55,15 @@ export function isSensitiveSystemConfigKey(key: string): boolean {
   return Boolean(getSystemConfigDefinition(key)?.sensitive);
 }
 
+/** unit=cents 的 min/max 以分存储，错误提示按元展示（CNY 两位小数） */
+function formatCentsBoundForMessage(cents: number): string {
+  const sign = cents < 0 ? "-" : "";
+  const abs = Math.abs(cents);
+  const whole = Math.floor(abs / 100);
+  const frac = String(abs % 100).padStart(2, "0");
+  return `${sign}${whole}.${frac}`;
+}
+
 export function normalizeSystemConfigValue(key: string, value: string): { ok: true; value: string } | { ok: false; message: string } {
   const definition = getSystemConfigDefinition(key);
   if (!definition) {
@@ -65,14 +80,30 @@ export function normalizeSystemConfigValue(key: string, value: string): { ok: tr
 
   if (definition.type === "integer") {
     if (!/^-?\d+$/.test(trimmed)) {
-      return { ok: false, message: `${definition.label} 必须是整数` };
+      // unit=cents：API/库仍是分整数；Admin UI 已按元转换后再提交
+      return {
+        ok: false,
+        message: definition.unit === "cents"
+          ? `${definition.label} 必须是整数（库内以分为单位存储）`
+          : `${definition.label} 必须是整数`,
+      };
     }
     const parsed = Number(trimmed);
     if (definition.min !== undefined && parsed < definition.min) {
-      return { ok: false, message: `${definition.label} 不能小于 ${definition.min}` };
+      return {
+        ok: false,
+        message: definition.unit === "cents"
+          ? `${definition.label} 不能小于 ${formatCentsBoundForMessage(definition.min)} 元`
+          : `${definition.label} 不能小于 ${definition.min}`,
+      };
     }
     if (definition.max !== undefined && parsed > definition.max) {
-      return { ok: false, message: `${definition.label} 不能大于 ${definition.max}` };
+      return {
+        ok: false,
+        message: definition.unit === "cents"
+          ? `${definition.label} 不能大于 ${formatCentsBoundForMessage(definition.max)} 元`
+          : `${definition.label} 不能大于 ${definition.max}`,
+      };
     }
     return { ok: true, value: String(parsed) };
   }

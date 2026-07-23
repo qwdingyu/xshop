@@ -62,7 +62,7 @@ const userBalanceQuerySchema = z.object({
 
 const adjustBalanceSchema = z.object({
   email: z.string().trim().email().max(160),
-  /** 调账金额（分）。正数加款，负数扣款；禁止 0。 */
+  /** 调账金额（币种最小单位，CNY=分）。正数加款，负数扣款；禁止 0。Admin UI 按元录入。 */
   amountCents: z.number().int().min(-99999999).max(99999999).refine((n) => n !== 0, { message: "金额不能为 0" }),
   note: z.string().trim().min(2).max(200),
 });
