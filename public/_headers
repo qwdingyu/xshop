@@ -1,0 +1,19 @@
+# Cloudflare 自定义响应头
+# 参考：https://developers.cloudflare.com/pages/platform/headers/
+
+# 全局安全响应头
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# Vite hash 资源内容不可变，可以长期缓存；Pages 模式与 Worker 响应保持同一策略。
+/_app/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# SPA 入口包含当前部署的 hash 文件名，必须每次获取最新版本。
+/_app/index.html
+  Cache-Control: no-store, no-cache, must-revalidate
+  Pragma: no-cache
+  Expires: 0

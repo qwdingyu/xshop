@@ -1,0 +1,210 @@
+/* ═══════════════════════════════════════════════════════
+   桌面 H5 适配
+   居中布局、最大宽度、桌面级间距
+   ═══════════════════════════════════════════════════════ */
+
+/* ── 桌面 H5：内容居中 ── */
+.platform-h5-desktop .app-main {
+  padding: 0 var(--content-pad);
+}
+
+.platform-h5-mobile .app-main {
+  padding: 0 var(--content-pad);
+}
+
+/* Admin 管理后台不走居中限制，占满可用宽度 */
+.admin-layout {
+  max-width: none;
+}
+
+.app-main:has(.admin-layout) {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── 桌面 H5：顶部导航 ── */
+.platform-h5-desktop .h5-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px var(--content-pad);
+  background: var(--tg-header-bg);
+}
+
+.platform-h5-desktop .h5-header .brand {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.platform-h5-desktop .h5-header .h5-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.platform-h5-desktop .h5-header .tab-link {
+  color: var(--tg-hint);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 6px 16px;
+  border-radius: var(--r-full);
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.platform-h5-desktop .h5-header .tab-link:hover {
+  color: var(--tg-text);
+  background: var(--surface);
+}
+
+.platform-h5-desktop .h5-header .tab-link.active {
+  color: var(--tg-btn-text);
+  background: var(--tg-btn);
+}
+
+/* ── 移动端 H5：顶部导航 ── */
+.platform-h5-mobile .h5-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px var(--content-pad);
+  background: var(--tg-header-bg);
+}
+
+.platform-h5-mobile .h5-header .brand {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.platform-h5-mobile .h5-header .h5-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.platform-h5-mobile .h5-header .tab-link {
+  color: var(--tg-hint);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: var(--r-full);
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.platform-h5-mobile .h5-header .tab-link.active {
+  color: var(--tg-btn-text);
+  background: var(--tg-btn);
+}
+
+/* ── 商品网格 ── */
+.platform-h5-desktop .product-grid,
+.platform-telegram-desktop .product-grid {
+  display: grid;
+  /* 稀疏目录只保留实际商品列并居中，避免一两个商品贴在超宽屏左侧；
+     商品较多时仍按 220px 最小宽度自动增加列数，不限制目录容量。 */
+  grid-template-columns: repeat(auto-fit, minmax(220px, 280px));
+  justify-content: center;
+  gap: var(--grid-gap);
+}
+
+.platform-h5-mobile .product-grid,
+.platform-telegram-mobile .product-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--grid-gap);
+}
+
+/* ── 桌面端支付弹窗：居中对话框 ── */
+.platform-h5-desktop .pay-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.platform-h5-desktop .pay-box {
+  width: 460px;
+  max-height: 85vh;
+  background: var(--tg-secondary-bg);
+  border-radius: var(--r-xl);
+  padding: 24px;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+
+/* ── 移动端支付弹窗：底部滑出 ── */
+.platform-h5-mobile .pay-overlay,
+.platform-telegram-mobile .pay-overlay,
+.platform-telegram-desktop .pay-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.platform-h5-mobile .pay-box,
+.platform-telegram-mobile .pay-box,
+.platform-telegram-desktop .pay-box {
+  width: 100%;
+  max-height: 85vh;
+  background: var(--tg-bg);
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  padding: 20px 16px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+
+/* ── 页面标题 ── */
+.page-section {
+  margin-bottom: var(--section-mb);
+}
+
+.page-section .section-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tg-hint);
+  margin-bottom: 4px;
+}
+
+.page-section .section-title {
+  font-size: var(--font-section-title);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+/* ── 表单卡片 ── */
+.form-card {
+  background: var(--tg-secondary-bg);
+  border: 0.5px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--card-pad);
+}
+
+.form-card .form-field {
+  margin-bottom: 14px;
+}
+
+.form-card .form-field:last-child {
+  margin-bottom: 0;
+}
+
+.form-card .form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tg-hint);
+  margin-bottom: 6px;
+}

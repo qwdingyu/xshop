@@ -1,0 +1,117 @@
+/* ═══════════════════════════════════════════════════════
+   Telegram Mini App 适配
+   安全区域、主题色、底部 Tab、BackButton
+   ═══════════════════════════════════════════════════════ */
+
+/* ── 安全区域 ── */
+.platform-telegram-mobile,
+.platform-telegram-desktop {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* ── Telegram 移动端：底部 Tab 栏 ── */
+.tg-tab-bar {
+  display: flex;
+  justify-content: space-around;
+  align-items: stretch;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--tg-bottom-bar-bg);
+  border-top: 0.5px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+  z-index: 200;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.tg-tab-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 12px;
+  text-decoration: none;
+  color: var(--tg-hint);
+  font-size: 11px;
+  font-weight: 500;
+  transition: color var(--duration-fast) var(--ease-out);
+  position: relative;
+}
+
+.tg-tab-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%) scaleX(0);
+  width: 24px;
+  height: 2px;
+  background: var(--tg-btn);
+  border-radius: 1px;
+  transition: transform var(--duration-normal) var(--ease-out);
+}
+
+.tg-tab-item.active {
+  color: var(--tg-btn);
+}
+
+.tg-tab-item.active::before {
+  transform: translateX(-50%) scaleX(1);
+}
+
+.tg-tab-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* ── Telegram 桌面端：顶部导航 ── */
+.tg-desktop-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 10px 20px;
+  background: var(--tg-header-bg);
+}
+
+.tg-desktop-nav .nav-link {
+  color: var(--tg-hint);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: var(--r-full);
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.tg-desktop-nav .nav-link:hover {
+  color: var(--tg-text);
+  background: var(--surface);
+}
+
+.tg-desktop-nav .nav-link.active {
+  color: var(--tg-btn-text);
+  background: var(--tg-btn);
+}
+
+/* ── Telegram 内容区底部留白 ── */
+.platform-telegram-mobile .app-main {
+  padding-bottom: 68px;
+}
+
+/* ── Telegram 支付弹窗：底部滑出 ── */
+.platform-telegram-mobile .pay-box,
+.platform-telegram-desktop .pay-box {
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+}
+
+.platform-telegram-mobile .pay-overlay,
+.platform-telegram-desktop .pay-overlay {
+  --overlay: rgba(0, 0, 0, 0.6);
+}

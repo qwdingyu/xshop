@@ -1,0 +1,251 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# 标准化 CI/CD 部署流水线（支持三种部署模式）
+#
+# 部署模式（由 GitHub Variable DEPLOY_MODE 控制）：
+#   workers  — Cloudflare Workers + Static Assets（默认）
+#   pages    — Cloudflare Pages（纯静态站）
+#   hybrid   — Workers + Pages 混合模式
+# ═══════════════════════════════════════════════════════════════════════════════
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy.yml'
+      - 'src/**'
+      - 'scripts/**'
+      - 'frontend/**'
+      - 'public/**'
+      - 'migrations/**'
+      - 'wrangler.jsonc'
+      - 'wrangler.toml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Validate deployment configuration
+        env:
+          DEPLOY_MODE: ${{ vars.DEPLOY_MODE }}
+          APP_ORIGIN: ${{ vars.APP_ORIGIN }}
+          WORKER_NAME: ${{ vars.WORKER_NAME }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          RATE_LIMIT_SALT: ${{ secrets.RATE_LIMIT_SALT }}
+          CREDENTIALS_ENCRYPTION_KEY: ${{ secrets.CREDENTIALS_ENCRYPTION_KEY }}
+        run: |
+          missing=()
+          for name in DEPLOY_MODE APP_ORIGIN WORKER_NAME CLOUDFLARE_API_TOKEN; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ "$DEPLOY_MODE" != "pages" ]; then
+            for name in TURSO_URL TURSO_TOKEN ADMIN_TOKEN RATE_LIMIT_SALT CREDENTIALS_ENCRYPTION_KEY; do
+              [ -n "${!name}" ] || missing+=("$name")
+            done
+          fi
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required deployment configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+          node -e 'const u = new URL(process.env.APP_ORIGIN); if (u.protocol !== "https:" || u.pathname !== "/") process.exit(1)'
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm run deps:ci
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Unit tests
+        run: npm run test
+
+      # ── 构建前端并同步到 Worker Static Assets ─────────────────────────
+      - name: Build frontend
+        run: npm run frontend:build
+
+      # ── SEO 页面生成（仅 pages 模式） ─────────────────────────────────
+      - name: Generate SEO pages
+        if: ${{ vars.DEPLOY_MODE == 'pages' }}
+        run: |
+          if grep -q '"generate:seo"' package.json 2>/dev/null; then
+            npm run generate:seo
+          else
+            echo "No SEO generation step"
+          fi
+
+      # ── 数据库迁移（workers/hybrid 模式） ──────────────────────────────
+      - name: Apply database migrations
+        if: ${{ vars.DEPLOY_MODE != 'pages' }}
+        run: |
+          if [ -f "scripts/migrate.mjs" ]; then
+            node scripts/migrate.mjs
+          elif [ -d "migrations" ]; then
+            echo "Running migrations from migrations/ directory"
+            node -e "
+              const { createClient } = require('@libsql/client');
+              const fs = require('fs');
+              const c = createClient({ url: process.env.TURSO_URL, authToken: process.env.TURSO_TOKEN });
+              const files = fs.readdirSync('migrations').filter(f => f.endsWith('.sql')).sort();
+              (async () => {
+                for (const f of files) {
+                  const sql = fs.readFileSync('migrations/' + f, 'utf-8');
+                  for (const stmt of sql.split(';').map(s=>s.trim()).filter(Boolean)) {
+                    try { await c.execute(stmt); } catch(e) {}
+                  }
+                }
+              })();
+            "
+          fi
+        env:
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
+      # ── 部署 Worker（workers/hybrid 模式） ─────────────────────────────
+      - name: Deploy Worker
+        if: ${{ vars.DEPLOY_MODE != 'pages' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          APP_ORIGIN: ${{ vars.APP_ORIGIN }}
+          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          RATE_LIMIT_SALT: ${{ secrets.RATE_LIMIT_SALT }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          CREDENTIALS_ENCRYPTION_KEY: ${{ secrets.CREDENTIALS_ENCRYPTION_KEY }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          ALLOW_TURNSTILE_BYPASS_FOR_SMOKE: ${{ secrets.ALLOW_TURNSTILE_BYPASS_FOR_SMOKE }}
+        run: |
+          umask 077
+          secrets_file="$RUNNER_TEMP/cf-shop-secrets.env"
+          trap 'rm -f "$secrets_file"' EXIT
+          : > "$secrets_file"
+          append_secret() {
+            local name="$1" value="${!1:-}"
+            if [ -n "$value" ]; then
+              printf '%s=%s\n' "$name" "$value" >> "$secrets_file"
+            fi
+            return 0
+          }
+          for name in TURSO_URL TURSO_TOKEN ADMIN_TOKEN RATE_LIMIT_SALT JWT_SECRET CREDENTIALS_ENCRYPTION_KEY TURNSTILE_SECRET_KEY ALLOW_TURNSTILE_BYPASS_FOR_SMOKE; do
+            append_secret "$name"
+          done
+
+          deploy_args=(--secrets-file="$secrets_file" --var "APP_ORIGIN:$APP_ORIGIN")
+          [ -n "$EMAIL_FROM" ] && deploy_args+=(--var "EMAIL_FROM:$EMAIL_FROM")
+          npx wrangler deploy "${deploy_args[@]}"
+
+      # ── 部署 Pages（pages/hybrid 模式） ────────────────────────────────
+      - name: Deploy Pages
+        if: ${{ vars.DEPLOY_MODE == 'pages' || vars.DEPLOY_MODE == 'hybrid' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          PAGES_DIR="${PAGES_DIR:-public}"
+          PAGES_PROJECT="${{ vars.PAGES_PROJECT_NAME || vars.WORKER_NAME || 'cf-shop' }}"
+          npx wrangler pages deploy "$PAGES_DIR" \
+            --project-name="$PAGES_PROJECT" \
+            --branch=main \
+            --commit-message="CI deploy ${{ github.sha }}" \
+            --commit-dirty=true
+
+      # ── 绑定自定义域名（可选） ──────────────────────────────────────────
+      - name: Bind custom domain
+        if: ${{ vars.BIND_DOMAIN == 'true' && vars.APP_ORIGIN != '' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_WORKER_SERVICE: ${{ vars.WORKER_NAME }}
+          APP_ORIGIN: ${{ vars.APP_ORIGIN }}
+          CF_WAIT_ACTIVE: "true"
+        run: |
+          if [ "${{ vars.DEPLOY_MODE }}" = "pages" ]; then
+            echo "Pages 模式：域名通过 Pages 项目自动绑定"
+          else
+            export CF_CUSTOM_DOMAIN="$(node -e 'process.stdout.write(new URL(process.env.APP_ORIGIN).hostname)')"
+            npm run domain:bind
+          fi
+
+      # ── 冒烟测试 ──────────────────────────────────────────────────────
+      - name: Smoke test
+        env:
+          BASE_URL: ${{ vars.APP_ORIGIN }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          SMOKE_TURNSTILE_TOKEN: ${{ secrets.SMOKE_TURNSTILE_TOKEN }}
+          DEPLOY_MODE: ${{ vars.DEPLOY_MODE || 'workers' }}
+        run: |
+          echo "Testing: $BASE_URL (mode: $DEPLOY_MODE)"
+          sleep 5
+
+          if [ "$DEPLOY_MODE" = "pages" ]; then
+            curl -sS "$BASE_URL/" -o /dev/null -w "Homepage: HTTP %{http_code}\n"
+          else
+            npm run smoke:readonly
+          fi
+          # 对照本次 public/_app 构建清单验证入口和全部 lazy JS/CSS，禁止只验首页。
+          npm run smoke:frontend-assets
+      # ── 域名与运营 smoke 校验（完整 verify:launch 需带真实邮箱/备份参数单独执行） ──
+      - name: Verify domain and operational smoke
+        if: ${{ vars.DEPLOY_MODE != 'pages' }}
+        env:
+          BASE_URL: ${{ vars.APP_ORIGIN }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          SMOKE_TURNSTILE_TOKEN: ${{ secrets.SMOKE_TURNSTILE_TOKEN }}
+        run: |
+          echo "Verify launch: $BASE_URL"
+          sleep 2
+          npm run verify:domain
+          # 自定义域名可能短暂命中上一版本。健康检查不使用 Secret，不能证明新 ADMIN_TOKEN 已传播。
+          admin_ready=false
+          for attempt in 1 2 3 4 5 6; do
+            admin_status="$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+              "${BASE_URL}/api/admin/summary")"
+            if [ "$admin_status" = "200" ]; then
+              admin_ready=true
+              break
+            fi
+            echo "Admin credential not ready (${attempt}/6, HTTP ${admin_status}); retrying..."
+            sleep 5
+          done
+          if [ "$admin_ready" != "true" ]; then
+            echo "Deployed admin credential did not become active" >&2
+            exit 1
+          fi
+          # 写入型管理端 smoke 会临时修改系统配置，单次执行即可验证后台闭环。
+          # 避免同一 GitHub Runner 在 60 秒固定窗口内连续写同一路由触发生产限流。
+          npm run smoke:admin
+      # ── 部署报告 ──────────────────────────────────────────────────────
+      - name: Deploy summary
+        if: always()
+        run: |
+          echo "## 🚀 cf-shop 部署报告" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| 项目 | 值 |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|----|" >> $GITHUB_STEP_SUMMARY
+          echo "| 分支 | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 提交 | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 时间 | $(date -u +'%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
+          echo "| 模式 | ${{ vars.DEPLOY_MODE || 'workers' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Worker | ${{ vars.WORKER_NAME }} |" >> $GITHUB_STEP_SUMMARY

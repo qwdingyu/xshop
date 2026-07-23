@@ -1,0 +1,14 @@
+# 本地开发环境变量模板
+# 复制此文件为 .dev.vars 并填入真实值
+# .dev.vars 已加入 .gitignore，不会提交到 git
+#
+# 注意事项：
+# - TURSO_URL / TURSO_TOKEN：数据库连接，部署和生产环境通过 wrangler secret 传入
+# - ADMIN_TOKEN：管理后台首次登录凭证，部署后可修改
+# - TURNSTILE / RESEND / 支付配置等 → 部署后在 admin 后台系统配置中设置
+# - CREDENTIALS_ENCRYPTION_KEY（支付加密密钥）→ 部署后用 wrangler secret put 设置
+
+TURSO_URL=libsql://your-project.aws-us-east-1.turso.io
+TURSO_TOKEN=your-turso-auth-token
+
+ADMIN_TOKEN=your-admin-token-here

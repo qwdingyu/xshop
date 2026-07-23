@@ -1,0 +1,1509 @@
+<!DOCTYPE html>
+<!-- Legacy static page kept only as historical fallback content. Worker routes serve /_app/index.html instead. -->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>管理后台 - 发卡商城</title>
+  <!-- Vue 3 CDN -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <!-- Element Plus CDN -->
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <script src="https://unpkg.com/element-plus"></script>
+  <style>
+    body { margin: 0; background: #f5f7fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .admin-header { background: #1a1a2e; color: #fff; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+    .admin-header h1 { font-size: 1.2rem; margin: 0; }
+    .admin-content { padding: 20px; max-width: 1200px; margin: 0 auto; }
+    .stat-card { background: #fff; border-radius: 8px; padding: 20px; text-align: center; }
+    .stat-card .num { font-size: 2rem; font-weight: 700; color: #409eff; }
+    .stat-card .label { color: #999; font-size: 0.9rem; margin-top: 4px; }
+    .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+    .login-box { max-width: 400px; margin: 100px auto; background: #fff; border-radius: 12px; padding: 40px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+    .login-box h2 { text-align: center; margin-bottom: 24px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- 未登录：登录界面 -->
+    <div v-if="!authenticated" class="login-box">
+      <h2>管理后台登录</h2>
+      <el-form @submit.prevent="login">
+        <el-form-item label="管理令牌">
+          <el-input v-model="adminToken" type="password" placeholder="输入 ADMIN_TOKEN" show-password></el-input>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" style="width:100%" @click="login" :loading="loading">登 录</el-button>
+        </el-form-item>
+      </el-form>
+    </div>
+
+    <!-- 已登录：管理界面 -->
+    <template v-else>
+      <div class="admin-header">
+        <h1>发卡商城 · 管理后台</h1>
+        <div>
+          <el-button text style="color:#fff" @click="logout">退出登录</el-button>
+        </div>
+      </div>
+
+      <div class="admin-content">
+        <!-- 顶部统计 -->
+        <el-row :gutter="16" style="margin-bottom:20px">
+          <el-col :span="6">
+            <div class="stat-card">
+              <div class="num">{{ stats.products }}</div>
+              <div class="label">上架商品</div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="stat-card">
+              <div class="num">{{ stats.availableCards }}</div>
+              <div class="label">可用卡密</div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="stat-card">
+              <div class="num">{{ stats.totalOrders }}</div>
+              <div class="label">总订单</div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="stat-card">
+              <div class="num">{{ stats.pendingOrders }}</div>
+              <div class="label">待处理订单</div>
+            </div>
+          </el-col>
+        </el-row>
+
+        <!-- 标签页 -->
+        <el-tabs v-model="activeTab" type="border-card">
+          <!-- ═══ 商品管理 ═══ -->
+          <el-tab-pane label="商品管理" name="products">
+            <div style="margin-bottom:16px;display:flex;justify-content:space-between">
+              <h3>商品列表</h3>
+              <el-button type="primary" size="small" @click="showProductDialog()">新增商品</el-button>
+            </div>
+
+            <!-- 筛选 -->
+            <el-row :gutter="12" style="margin-bottom:12px">
+              <el-col :span="6">
+                <el-input v-model="productFilter.q" placeholder="搜索商品ID/名称/分类" clearable @keyup.enter="loadProducts"></el-input>
+              </el-col>
+              <el-col :span="5">
+                <el-select v-model="productFilter.active" placeholder="上架状态" clearable @change="loadProducts">
+                  <el-option label="上架" value="true"></el-option>
+                  <el-option label="下架" value="false"></el-option>
+                </el-select>
+              </el-col>
+              <el-col :span="5">
+                <el-select v-model="productFilter.category" placeholder="选择分类" clearable @change="loadProducts">
+                  <el-option label="账号" value="account"></el-option>
+                  <el-option label="卡密" value="card"></el-option>
+                  <el-option label="服务" value="service"></el-option>
+                </el-select>
+              </el-col>
+              <el-col :span="4">
+                <el-button type="primary" @click="loadProducts" style="width:100%">查询</el-button>
+              </el-col>
+            </el-row>
+
+            <el-table :data="productList" stripe v-loading="loading" :empty-text="'暂无商品数据'">
+              <el-table-column prop="title" label="名称" width="180"></el-table-column>
+              <el-table-column prop="id" label="商品ID" width="150"></el-table-column>
+              <el-table-column prop="category" label="分类" width="100"></el-table-column>
+              <el-table-column label="价格" width="100">
+                <template #default="{ row }">¥{{ (row.priceCents / 100).toFixed(2) }}</template>
+              </el-table-column>
+              <el-table-column label="库存" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="Number(row.stock || 0) > 0 ? 'success' : 'danger'" size="small">
+                    {{ Number(row.stock || 0) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="80">
+                <template #default="{ row }">
+                  <el-tag :type="row.active ? 'success' : 'info'" size="small">
+                    {{ row.active ? '上架' : '下架' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="200" fixed="right">
+                <template #default="{ row }">
+                  <el-button size="small" @click="showProductDialog(row)">编辑</el-button>
+                  <el-popconfirm title="确认删除？" @confirm="deleteProduct(row.id)">
+                    <template #reference>
+                      <el-button size="small" type="danger">删除</el-button>
+                    </template>
+                  </el-popconfirm>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <div style="margin-top:12px;display:flex;justify-content:flex-end;align-items:center;gap:12px">
+              <el-pagination
+                background
+                layout="total, sizes, prev, pager, next"
+                :total="productTotal"
+                :page-size="productFilter.limit"
+                :current-page="productFilter.page"
+                :page-sizes="[10, 20, 50, 100]"
+                @current-change="handleProductPage"
+                @size-change="handleProductSize"
+              ></el-pagination>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="color:#606266;font-size:14px">跳至</span>
+                <el-input v-model="productJumpPage" type="number" :min="1" :max="Math.max(1, Math.ceil(productTotal / productFilter.limit))" style="width:70px" @keyup.enter="jumpToPage('product-jump-input', productTotal, handleProductPage)"></el-input>
+                <span style="color:#606266;font-size:14px">页</span>
+                <el-button type="primary" size="small" @click="jumpToPage('product-jump-input', productTotal, handleProductPage)">GO</el-button>
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <!-- ═══ 卡密管理 ═══ -->
+          <el-tab-pane label="卡密管理" name="cards">
+            <div style="margin-bottom:16px;display:flex;justify-content:space-between">
+              <h3>卡密列表</h3>
+              <el-button type="primary" size="small" @click="showImportDialog = true">批量导入</el-button>
+            </div>
+
+            <!-- 筛选 -->
+            <el-row :gutter="12" style="margin-bottom:12px">
+              <el-col :span="6">
+                <el-select v-model="cardFilter.productId" placeholder="选择商品" clearable @change="loadCards">
+                  <el-option v-for="p in productList" :key="p.id" :label="p.title" :value="p.id"></el-option>
+                </el-select>
+              </el-col>
+              <el-col :span="6">
+                <el-select v-model="cardFilter.status" placeholder="选择状态" clearable @change="loadCards">
+                  <el-option label="可用" value="available"></el-option>
+                  <el-option label="锁定" value="locked"></el-option>
+                  <el-option label="已发放" value="issued"></el-option>
+                  <el-option label="已退回" value="returned"></el-option>
+                </el-select>
+              </el-col>
+              <el-col :span="6">
+                <el-input v-model="cardFilter.batchId" placeholder="批次ID（部分匹配）" clearable @keyup.enter="loadCards"></el-input>
+              </el-col>
+              <el-col :span="6">
+                <el-button type="primary" @click="loadCards" style="width:100%">查询</el-button>
+              </el-col>
+            </el-row>
+
+            <el-table :data="cardList" stripe v-loading="loading" max-height="500" :empty-text="'暂无卡密数据'">
+              <el-table-column prop="id" label="ID" width="100">
+                <template #default="{ row }">{{ row.id.slice(0, 8) }}</template>
+              </el-table-column>
+              <el-table-column prop="accountLabel" label="账号/标签" width="180"></el-table-column>
+              <el-table-column prop="deliverySecret" label="卡密内容" min-width="220"></el-table-column>
+              <el-table-column prop="status" label="状态" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="cardStatusType(row.status)" size="small">{{ row.status }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="createdAt" label="创建时间" width="170">
+                <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="100">
+                <template #default="{ row }">
+                  <el-popconfirm v-if="row.status === 'available'" title="确认删除？" @confirm="deleteCard(row.id)">
+                    <template #reference>
+                      <el-button size="small" type="danger">删除</el-button>
+                    </template>
+                  </el-popconfirm>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <div style="margin-top:12px;display:flex;justify-content:flex-end;align-items:center;gap:12px">
+              <el-pagination
+                background
+                layout="total, sizes, prev, pager, next"
+                :total="cardTotal"
+                :page-size="cardFilter.limit"
+                :current-page="cardFilter.page"
+                :page-sizes="[20, 50, 100, 200]"
+                @current-change="handleCardPage"
+                @size-change="handleCardSize"
+              ></el-pagination>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="color:#606266;font-size:14px">跳至</span>
+                <el-input v-model="cardJumpPage" type="number" :min="1" :max="Math.max(1, Math.ceil(cardTotal / cardFilter.limit))" style="width:70px" @keyup.enter="jumpToPage('card-jump-input', cardTotal, handleCardPage)"></el-input>
+                <span style="color:#606266;font-size:14px">页</span>
+                <el-button type="primary" size="small" @click="jumpToPage('card-jump-input', cardTotal, handleCardPage)">GO</el-button>
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <!-- ═══ 订单管理 ═══ -->
+          <el-tab-pane label="订单管理" name="orders">
+            <div style="margin-bottom:16px">
+              <h3>订单列表</h3>
+            </div>
+
+            <!-- 筛选 -->
+            <el-row :gutter="12" style="margin-bottom:12px">
+              <el-col :span="6">
+                <el-input v-model="orderFilter.orderNo" placeholder="搜索订单号" clearable @keyup.enter="loadOrders"></el-input>
+              </el-col>
+              <el-col :span="6">
+                <el-input v-model="orderFilter.buyerContact" placeholder="买家联系方式" clearable @keyup.enter="loadOrders"></el-input>
+              </el-col>
+              <el-col :span="6">
+                <el-select v-model="orderFilter.status" placeholder="选择状态" clearable @change="loadOrders">
+                  <el-option label="待支付" value="pending"></el-option>
+                  <el-option label="已支付" value="paid"></el-option>
+                  <el-option label="已发放" value="issued"></el-option>
+                  <el-option label="已取消" value="cancelled"></el-option>
+                  <el-option label="已过期" value="expired"></el-option>
+                </el-select>
+              </el-col>
+              <el-col :span="6">
+                <el-select v-model="orderFilter.paymentMethod" placeholder="支付方式" clearable @change="loadOrders">
+                  <el-option label="支付宝" value="alipay"></el-option>
+                  <el-option label="微信支付" value="wechat"></el-option>
+                  <el-option label="EasyPay" value="easypay"></el-option>
+                  <el-option label="人工/其他" value="manual"></el-option>
+                </el-select>
+              </el-col>
+            </el-row>
+
+            <el-table :data="orderList" stripe v-loading="loading" :empty-text="'暂无订单数据'">
+              <el-table-column prop="orderNo" label="订单号" width="180"></el-table-column>
+              <el-table-column label="金额" width="100">
+                <template #default="{ row }">¥{{ (row.amountCents / 100).toFixed(2) }}</template>
+              </el-table-column>
+              <el-table-column label="折扣" width="80">
+                <template #default="{ row }">
+                  <span v-if="row.discountCents > 0">-¥{{ (row.discountCents / 100).toFixed(2) }}</span>
+                  <span v-else>-</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="status" label="状态" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="orderStatusType(row.status)" size="small">{{ orderStatusText(row.status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="paymentMethod" label="支付方式" width="100"></el-table-column>
+              <el-table-column prop="buyerEmail" label="买家邮箱" width="180"></el-table-column>
+              <el-table-column prop="createdAt" label="创建时间" width="170">
+                <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="200" fixed="right">
+                <template #default="{ row }">
+                  <el-button v-if="row.status === 'pending'" size="small" type="success" @click="confirmOrder(row.id)">确认</el-button>
+                  <el-popconfirm v-if="row.status === 'pending'" title="确认取消？" @confirm="cancelOrder(row.id)">
+                    <template #reference>
+                      <el-button size="small" type="danger">取消</el-button>
+                    </template>
+                  </el-popconfirm>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <div style="margin-top:12px;display:flex;justify-content:flex-end;align-items:center;gap:12px">
+              <el-pagination
+                background
+                layout="total, sizes, prev, pager, next"
+                :total="orderTotal"
+                :page-size="orderFilter.limit"
+                :current-page="orderFilter.page"
+                :page-sizes="[10, 20, 50, 100]"
+                @current-change="handleOrderPage"
+                @size-change="handleOrderSize"
+              ></el-pagination>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="color:#606266;font-size:14px">跳至</span>
+                <el-input v-model="orderJumpPage" type="number" :min="1" :max="Math.max(1, Math.ceil(orderTotal / orderFilter.limit))" style="width:70px" @keyup.enter="jumpToPage('order-jump-input', orderTotal, handleOrderPage)"></el-input>
+                <span style="color:#606266;font-size:14px">页</span>
+                <el-button type="primary" size="small" @click="jumpToPage('order-jump-input', orderTotal, handleOrderPage)">GO</el-button>
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <!-- ═══ 优惠码管理 ═══ -->
+          <el-tab-pane label="优惠码" name="coupons">
+            <div style="margin-bottom:16px;display:flex;justify-content:space-between">
+              <h3>优惠码列表</h3>
+              <div>
+                <el-button type="success" size="small" @click="showBatchCouponDialog = true">批量生成</el-button>
+                <el-button type="primary" size="small" @click="showCouponDialog = true" style="margin-left:8px">新增优惠码</el-button>
+              </div>
+            </div>
+
+            <!-- 筛选 -->
+            <el-row :gutter="12" style="margin-bottom:12px">
+              <el-col :span="6">
+                <el-select v-model="couponFilter.productId" placeholder="选择商品" clearable @change="loadCoupons">
+                  <el-option v-for="p in productList" :key="p.id" :label="p.title" :value="p.id"></el-option>
+                </el-select>
+              </el-col>
+              <el-col :span="6">
+                <el-select v-model="couponFilter.status" placeholder="选择状态" clearable @change="loadCoupons">
+                  <el-option label="启用" value="active"></el-option>
+                  <el-option label="禁用" value="inactive"></el-option>
+                </el-select>
+              </el-col>
+              <el-col :span="6">
+                <el-input v-model="couponFilter.search" placeholder="搜索优惠码" clearable @keyup.enter="loadCoupons"></el-input>
+              </el-col>
+              <el-col :span="6">
+                <el-button type="primary" @click="loadCoupons" style="width:100%">查询</el-button>
+              </el-col>
+            </el-row>
+
+            <el-table :data="couponList" stripe v-loading="loading" :empty-text="'暂无优惠码数据'">
+              <el-table-column prop="code" label="优惠码" width="150"></el-table-column>
+              <el-table-column label="折扣" width="120">
+                <template #default="{ row }">
+                  {{ row.discountType === 'percent' ? row.discountValue + '%' : '¥' + (row.discountValue / 100).toFixed(2) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="使用次数" width="120">
+                <template #default="{ row }">{{ row.usedCount }} / {{ row.maxUses || '无限' }}</template>
+              </el-table-column>
+              <el-table-column prop="active" label="状态" width="80">
+                <template #default="{ row }">
+                  <el-tag :type="row.active ? 'success' : 'info'" size="small">
+                    {{ row.active ? '启用' : '禁用' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="100" fixed="right">
+                <template #default="{ row }">
+                  <el-popconfirm title="确认删除？" @confirm="deleteCoupon(row.code)">
+                    <template #reference>
+                      <el-button size="small" type="danger">删除</el-button>
+                    </template>
+                  </el-popconfirm>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <div style="margin-top:12px;display:flex;justify-content:flex-end;align-items:center;gap:12px">
+              <el-pagination
+                background
+                layout="total, sizes, prev, pager, next"
+                :total="couponTotal"
+                :page-size="couponFilter.limit"
+                :current-page="couponFilter.page"
+                :page-sizes="[10, 20, 50, 100]"
+                @current-change="handleCouponPage"
+                @size-change="handleCouponSize"
+              ></el-pagination>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="color:#606266;font-size:14px">跳至</span>
+                <el-input v-model="couponJumpPage" type="number" :min="1" :max="Math.max(1, Math.ceil(couponTotal / couponFilter.limit))" style="width:70px" @keyup.enter="jumpToPage('coupon-jump-input', couponTotal, handleCouponPage)"></el-input>
+                <span style="color:#606266;font-size:14px">页</span>
+                <el-button type="primary" size="small" @click="jumpToPage('coupon-jump-input', couponTotal, handleCouponPage)">GO</el-button>
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <!-- ═══ 余额流水 ═══ -->
+          <el-tab-pane label="余额流水" name="balances">
+            <div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
+              <h3 style="margin:0">余额流水</h3>
+              <el-button size="small" @click="loadBalanceTransactions">刷新</el-button>
+            </div>
+            <el-alert title="用于核对充值码入账、余额消费、退款和人工调账；金额正数为入账，负数为扣款。" type="info" :closable="false" style="margin-bottom:12px"></el-alert>
+
+            <el-row :gutter="12" style="margin-bottom:12px">
+              <el-col :span="6">
+                <el-input v-model="balanceTxFilter.email" placeholder="买家邮箱" clearable @keyup.enter="loadBalanceTransactions"></el-input>
+              </el-col>
+              <el-col :span="5">
+                <el-select v-model="balanceTxFilter.type" placeholder="流水类型" clearable @change="loadBalanceTransactions">
+                  <el-option label="充值码入账" value="voucher_redeem"></el-option>
+                  <el-option label="余额消费" value="order_spend"></el-option>
+                  <el-option label="退款" value="refund"></el-option>
+                  <el-option label="人工调账" value="adjustment"></el-option>
+                </el-select>
+              </el-col>
+              <el-col :span="5">
+                <el-input v-model="balanceTxFilter.referenceType" placeholder="来源类型" clearable @keyup.enter="loadBalanceTransactions"></el-input>
+              </el-col>
+              <el-col :span="5">
+                <el-input v-model="balanceTxFilter.referenceId" placeholder="来源 ID" clearable @keyup.enter="loadBalanceTransactions"></el-input>
+              </el-col>
+              <el-col :span="3">
+                <el-button type="primary" @click="loadBalanceTransactions" style="width:100%">查询</el-button>
+              </el-col>
+            </el-row>
+
+            <el-table :data="balanceTransactionList" stripe v-loading="loading" max-height="520" :empty-text="'暂无余额流水数据'">
+              <el-table-column prop="createdAt" label="时间" width="170">
+                <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+              </el-table-column>
+              <el-table-column prop="email" label="邮箱" min-width="180"></el-table-column>
+              <el-table-column prop="type" label="类型" width="110">
+                <template #default="{ row }">
+                  <el-tag :type="balanceTxTypeTag(row.type)" size="small">{{ balanceTxTypeText(row.type) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="变动金额" width="120">
+                <template #default="{ row }">
+                  <span :style="{ color: row.amountCents >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }">
+                    {{ row.amountCents >= 0 ? '+' : '-' }}¥{{ (Math.abs(row.amountCents) / 100).toFixed(2) }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="变动后余额" width="120">
+                <template #default="{ row }">¥{{ (row.balanceAfterCents / 100).toFixed(2) }}</template>
+              </el-table-column>
+              <el-table-column label="来源" min-width="180">
+                <template #default="{ row }">
+                  <span>{{ row.referenceType || '-' }}</span>
+                  <span v-if="row.referenceId" style="color:#999;margin-left:6px">{{ row.referenceId }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="note" label="备注" min-width="180"></el-table-column>
+            </el-table>
+
+            <div style="margin-top:12px;display:flex;justify-content:flex-end;align-items:center;gap:12px">
+              <el-pagination
+                background
+                layout="total, sizes, prev, pager, next"
+                :total="balanceTxTotal"
+                :page-size="balanceTxFilter.limit"
+                :current-page="balanceTxFilter.page"
+                :page-sizes="[20, 50, 100, 200]"
+                @current-change="handleBalanceTxPage"
+                @size-change="handleBalanceTxSize"
+              ></el-pagination>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="color:#606266;font-size:14px">跳至</span>
+                <el-input v-model="balanceTxJumpPage" type="number" :min="1" :max="Math.max(1, Math.ceil(balanceTxTotal / balanceTxFilter.limit))" style="width:70px" @keyup.enter="jumpToPage('balance-tx-jump-input', balanceTxTotal, handleBalanceTxPage)"></el-input>
+                <span style="color:#606266;font-size:14px">页</span>
+                <el-button type="primary" size="small" @click="jumpToPage('balance-tx-jump-input', balanceTxTotal, handleBalanceTxPage)">GO</el-button>
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <!-- ═══ 系统配置 ═══ -->
+          <el-tab-pane label="系统配置" name="config">
+            <div class="card">
+              <h3 style="margin-bottom:16px">系统信息</h3>
+              <el-descriptions :column="2" border>
+                <el-descriptions-item label="商品数量">{{ stats.products }}</el-descriptions-item>
+                <el-descriptions-item label="可用卡密">{{ stats.availableCards }}</el-descriptions-item>
+                <el-descriptions-item label="总卡密">{{ stats.totalCards }}</el-descriptions-item>
+                <el-descriptions-item label="总订单">{{ stats.totalOrders }}</el-descriptions-item>
+              </el-descriptions>
+            </div>
+            <div class="card">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <h3 style="margin:0">业务参数</h3>
+                <el-button size="small" @click="loadSystemConfig">刷新</el-button>
+              </div>
+              <el-alert title="仅支持下列已注册参数；保存后会被业务代码或前端读取，未注册 key 会被后端拒绝。" type="info" :closable="false" style="margin-bottom:12px"></el-alert>
+              <el-table :data="systemConfigDefinitions" border>
+                <el-table-column prop="label" label="参数" width="150"></el-table-column>
+                <el-table-column prop="key" label="Key" width="210"></el-table-column>
+                <el-table-column label="值" min-width="260">
+                  <template #default="{ row }">
+                    <el-switch
+                      v-if="row.type === 'boolean'"
+                      v-model="systemConfigForm[row.key]"
+                      active-value="true"
+                      inactive-value="false"
+                    ></el-switch>
+                    <el-input-number
+                      v-else-if="row.type === 'integer'"
+                      v-model="systemConfigForm[row.key]"
+                      :min="row.min"
+                      :max="row.max"
+                      controls-position="right"
+                      style="width:180px"
+                    ></el-input-number>
+                    <el-input
+                      v-else-if="row.key === 'offline_pay_hint'"
+                      v-model="systemConfigForm[row.key]"
+                      type="textarea"
+                      :maxlength="row.maxLength || 500"
+                      show-word-limit
+                    ></el-input>
+                    <el-input
+                      v-else
+                      v-model="systemConfigForm[row.key]"
+                      :maxlength="row.maxLength || 500"
+                      show-word-limit
+                    ></el-input>
+                  </template>
+                </el-table-column>
+                <el-table-column label="生效位置" min-width="280">
+                  <template #default="{ row }">
+                    <div style="color:#666;font-size:0.9rem;line-height:1.5">{{ row.effect }}</div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="100">
+                  <template #default="{ row }">
+                    <el-button size="small" type="primary" @click="saveSystemConfig(row)">保存</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+            <div class="card">
+              <h3 style="margin-bottom:16px">环境变量状态</h3>
+              <el-alert title="请通过 wrangler secret put 配置敏感变量" type="info" :closable="false" style="margin-bottom:12px"></el-alert>
+              <p style="color:#666;font-size:0.9rem">
+                必要变量：TURSO_URL, TURSO_TOKEN, ADMIN_TOKEN, TURNSTILE_SECRET_KEY<br>
+                支付变量：ALIPAY_APP_ID, ALIPAY_PRIVATE_KEY, ALIPAY_PUBLIC_KEY<br>
+                邮件变量：SMTP_HOST, SMTP_USER, SMTP_PASS<br>
+                安全变量：RATE_LIMIT_SALT, ENCRYPTION_KEY
+              </p>
+            </div>
+          </el-tab-pane>
+
+          <!-- ═══ 支付配置 ═══ -->
+          <el-tab-pane label="支付配置" name="payment">
+            <div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
+              <h3 style="margin:0">支付渠道管理</h3>
+              <el-alert v-if="!hasEncryptionKey" title="CREDENTIALS_ENCRYPTION_KEY 未配置，支付配置功能不可用" type="warning" :closable="false" show-icon style="flex:1;margin-left:16px"></el-alert>
+            </div>
+            <div v-for="p in paymentProviders" :key="p.name" class="card" style="margin-bottom:12px">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <div>
+                  <strong style="font-size:1.1rem">{{ p.displayName }}</strong>
+                  <span style="margin-left:12px;color:#999;font-size:0.85rem">{{ p.description }}</span>
+                </div>
+                <div>
+                  <el-tag v-if="p.enabled" type="success" size="small" style="margin-right:8px">已启用</el-tag>
+                  <el-tag v-else-if="p.configured" type="warning" size="small" style="margin-right:8px">已配置</el-tag>
+                  <el-tag v-else type="info" size="small" style="margin-right:8px">未配置</el-tag>
+                  <el-button size="small" type="primary" @click="showPaymentConfig(p)" :disabled="!hasEncryptionKey">配置</el-button>
+                  <el-popconfirm v-if="p.configured" title="确认删除此支付配置？" @confirm="deletePaymentConfig(p.name)">
+                    <template #reference>
+                      <el-button size="small" type="danger" :disabled="!hasEncryptionKey">停用</el-button>
+                    </template>
+                  </el-popconfirm>
+                </div>
+              </div>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+    </template>
+
+    <!-- ═══ 商品编辑对话框 ═══ -->
+    <el-dialog v-model="productDialogVisible" :title="editingProduct ? '编辑商品' : '新增商品'" width="600px">
+      <el-form :model="productForm" label-width="100px">
+        <el-form-item label="名称">
+          <el-input v-model="productForm.title" placeholder="商品名称"></el-input>
+        </el-form-item>
+        <el-form-item label="商品ID">
+          <el-input v-model="productForm.id" :disabled="!!editingProduct" placeholder="小写字母/数字/下划线/短横线，如 netflix-premium"></el-input>
+        </el-form-item>
+        <el-form-item label="分类">
+          <el-select v-model="productForm.category">
+            <el-option label="账号" value="account"></el-option>
+            <el-option label="卡密" value="card"></el-option>
+            <el-option label="服务" value="service"></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="发卡模式">
+          <el-select v-model="productForm.issueMode">
+            <el-option label="自动发卡" value="direct"></el-option>
+            <el-option label="人工交付" value="manual"></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="价格（元）">
+          <el-input-number v-model="productForm.price" :min="0" :precision="2" :step="1"></el-input-number>
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="productForm.description" type="textarea" :rows="3"></el-input>
+        </el-form-item>
+        <el-form-item label="图片 URL">
+          <el-input v-model="productForm.coverUrl"></el-input>
+        </el-form-item>
+        <el-form-item label="销售文案">
+          <el-input v-model="productForm.salesCopy" type="textarea" :rows="3"></el-input>
+        </el-form-item>
+        <el-form-item label="排序">
+          <el-input-number v-model="productForm.sortOrder" :min="0"></el-input-number>
+        </el-form-item>
+        <el-form-item label="上架">
+          <el-switch v-model="productForm.active"></el-switch>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="productDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveProduct" :loading="loading">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ═══ 卡密导入对话框 ═══ -->
+    <el-dialog v-model="showImportDialog" title="批量导入卡密" width="600px">
+      <el-form :model="importForm" label-width="100px">
+        <el-form-item label="选择商品">
+          <el-select v-model="importForm.productId" placeholder="选择商品">
+            <el-option v-for="p in productList" :key="p.id" :label="p.title" :value="p.id"></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="批次名称">
+          <el-input v-model="importForm.batchName" placeholder="如：2026年5月采购"></el-input>
+        </el-form-item>
+        <el-form-item label="卡密内容">
+          <el-input v-model="importForm.cardsText" type="textarea" :rows="10" placeholder="每行一个卡密，如：&#10;账号1:密码1&#10;账号2:密码2&#10;激活码ABC123"></el-input>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showImportDialog = false">取消</el-button>
+        <el-button type="primary" @click="importCards" :loading="loading">导入</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ═══ 优惠码编辑对话框 ═══ -->
+    <el-dialog v-model="showCouponDialog" title="新增优惠码" width="500px">
+      <el-form :model="couponForm" label-width="100px">
+        <el-form-item label="优惠码">
+          <el-input v-model="couponForm.code" placeholder="如 SAVE20"></el-input>
+        </el-form-item>
+        <el-form-item label="折扣类型">
+          <el-select v-model="couponForm.discountType">
+            <el-option label="百分比" value="percent"></el-option>
+            <el-option label="固定金额" value="fixed"></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="折扣值">
+          <el-input-number v-model="couponForm.discountValue" :min="1"></el-input-number>
+          <span style="margin-left:8px;color:#999">{{ couponForm.discountType === 'percent' ? '%' : '分' }}</span>
+        </el-form-item>
+        <el-form-item label="最大使用次数">
+          <el-input-number v-model="couponForm.maxUsage" :min="0"></el-input-number>
+          <span style="margin-left:8px;color:#999">0 = 无限</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showCouponDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveCoupon" :loading="loading">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ═══ 批量生成优惠码对话框 ═══ -->
+    <el-dialog v-model="showBatchCouponDialog" title="批量生成优惠码" width="520px">
+      <el-alert title="将自动生成指定数量的随机优惠码，支持自定义前缀" type="info" :closable="false" style="margin-bottom:16px"></el-alert>
+      <el-form :model="batchCouponForm" label-width="100px">
+        <el-form-item label="商品" required>
+          <el-select v-model="batchCouponForm.productId" placeholder="选择商品" style="width:100%">
+            <el-option v-for="p in productList" :key="p.id" :label="p.title" :value="p.id"></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="折扣类型">
+          <el-select v-model="batchCouponForm.discountType">
+            <el-option label="百分比" value="percent"></el-option>
+            <el-option label="固定金额" value="fixed"></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="折扣值">
+          <el-input-number v-model="batchCouponForm.discountValue" :min="1"></el-input-number>
+          <span style="margin-left:8px;color:#999">{{ batchCouponForm.discountType === 'percent' ? '%' : '分' }}</span>
+        </el-form-item>
+        <el-form-item label="最大使用次数">
+          <el-input-number v-model="batchCouponForm.maxUsage" :min="0"></el-input-number>
+          <span style="margin-left:8px;color:#999">0 = 无限</span>
+        </el-form-item>
+        <el-form-item label="生成数量">
+          <el-input-number v-model="batchCouponForm.count" :min="1" :max="100"></el-input-number>
+          <span style="margin-left:8px;color:#999">1-100</span>
+        </el-form-item>
+        <el-form-item label="前缀">
+          <el-input v-model="batchCouponForm.prefix" placeholder="如 SAVE（留空则无前缀）"></el-input>
+        </el-form-item>
+        <el-form-item label="有效期">
+          <el-date-picker v-model="batchCouponForm.expiresAt" type="date" placeholder="选择日期" value-format="YYYY-MM-DD" style="width:100%"></el-date-picker>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showBatchCouponDialog = false">取消</el-button>
+        <el-button type="primary" @click="generateCoupons" :loading="loading">生成</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ═══ 批量生成结果对话框 ═══ -->
+    <el-dialog v-model="showBatchResultDialog" title="生成结果" width="600px">
+      <el-alert v-if="batchResult.warning" :title="batchResult.warning" type="warning" :closable="false" style="margin-bottom:12px"></el-alert>
+      <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+        <span>已生成 {{ batchResult.codes?.length || 0 }} 个优惠码</span>
+        <el-button size="small" @click="copyBatchCodes" :disabled="!batchResult.codes?.length">复制全部</el-button>
+      </div>
+      <el-input v-model="batchResultText" type="textarea" :rows="10" readonly style="font-family:monospace"></el-input>
+      <template #footer>
+        <el-button @click="showBatchResultDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ═══ 支付配置编辑对话框 ═══ -->
+    <el-dialog v-model="paymentDialogVisible" :title="'配置 - ' + (editingPayment?.displayName || '')" width="550px">
+      <el-form :model="paymentForm" label-width="140px" v-if="editingPayment">
+        <el-form-item v-for="field in editingPayment.fields" :key="field.key" :label="field.label">
+          <el-input
+            v-model="paymentForm[field.key]"
+            :type="field.type || 'text'"
+            :placeholder="field.placeholder || (field.sensitive && editingPayment.configured ? '留空保持原有值' : '')"
+            show-password
+          ></el-input>
+          <div v-if="field.sensitive && editingPayment.configured" style="color:#999;font-size:0.8rem;margin-top:4px">
+            留空则保持原值不变
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="paymentDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="savePaymentConfig" :loading="loading">保存</el-button>
+      </template>
+    </el-dialog>
+  </div>
+
+  <script>
+    const { createApp, ref, reactive, onMounted } = Vue;
+
+    const app = createApp({
+      setup() {
+        // ── 认证状态 ──
+        const authenticated = ref(false);
+        const adminToken = ref(localStorage.getItem('adminToken') || '');
+        const loading = ref(false);
+        const activeTab = ref('products');
+
+        // ── 从 URL 参数读取 JWT token（TG Bot 登录链接）──
+        // 对标 TGPays admin/login.php 的 JWT 验证流程
+        // cf-shop 使用 ADMIN_TOKEN 作为 Bearer Token，JWT 登录时先调用 /api/admin/verify-jwt 换取 ADMIN_TOKEN
+        const urlParams = new URLSearchParams(window.location.search);
+        const jwtFromUrl = urlParams.get('jwt');
+        if (jwtFromUrl && !adminToken.value) {
+          // 有 JWT 参数且本地无 token，尝试用 JWT 登录
+          // 先调用 verify-jwt 端点验证 JWT 并换取 ADMIN_TOKEN
+          (async () => {
+            try {
+              const res = await fetch('/api/admin/verify-jwt', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jwt: jwtFromUrl }),
+              });
+              const data = await res.json();
+              if (data.ok && data.adminToken) {
+                adminToken.value = data.adminToken;
+                localStorage.setItem('adminToken', data.adminToken);
+                authenticated.value = true;
+                loadData();
+                // 清除 URL 中的 jwt 参数
+                const cleanUrl = window.location.pathname;
+                window.history.replaceState({}, '', cleanUrl);
+              } else {
+                console.warn('[admin] JWT 验证失败:', data.error);
+              }
+            } catch (err) {
+              console.error('[admin] JWT 验证请求失败:', err);
+            }
+          })();
+        }
+
+        // ── 数据 ──
+        const stats = reactive({ products: 0, availableCards: 0, totalCards: 0, totalOrders: 0, pendingOrders: 0 });
+        const productList = ref([]);
+        const cardList = ref([]);
+        const orderList = ref([]);
+        const couponList = ref([]);
+        const balanceTransactionList = ref([]);
+        const balanceTxTotal = ref(0);
+        // ── 支付配置 ──
+        const paymentProviders = ref([]);
+        const paymentDialogVisible = ref(false);
+        const editingPayment = ref(null);
+        const paymentForm = reactive({});
+        const hasEncryptionKey = ref(!!localStorage.getItem('hasEncryptionKey'));
+        const systemConfigDefinitions = ref([]);
+        const systemConfigForm = reactive({});
+
+        // ── 筛选 ──
+        const productFilter = reactive({ q: '', active: '', category: '', page: 1, limit: 20 });
+        const productTotal = ref(0);
+        const cardFilter = reactive({ productId: '', batchId: '', status: '', page: 1, limit: 20 });
+        const cardTotal = ref(0);
+        const orderFilter = reactive({ orderNo: '', buyerContact: '', status: '', paymentMethod: '', page: 1, limit: 20 });
+        const orderTotal = ref(0);
+        const couponFilter = reactive({ productId: '', status: '', search: '', page: 1, limit: 20 });
+        const couponTotal = ref(0);
+        const productJumpPage = ref(1);
+        const cardJumpPage = ref(1);
+        const orderJumpPage = ref(1);
+        const couponJumpPage = ref(1);
+        const balanceTxJumpPage = ref(1);
+        const balanceTxFilter = reactive({
+          email: '', type: '', referenceType: '', referenceId: '', page: 1, limit: 50,
+        });
+
+        // ── 对话框 ──
+        const productDialogVisible = ref(false);
+        const editingProduct = ref(null);
+        const productForm = reactive({
+          id: '', title: '', category: 'card', price: 0, currency: 'CNY', issueMode: 'direct',
+          description: '', coverUrl: '', salesCopy: '', tagsJson: '[]', sortOrder: 100, active: true,
+        });
+
+        const showImportDialog = ref(false);
+        const importForm = reactive({ productId: '', batchName: '', cardsText: '' });
+
+        const showCouponDialog = ref(false);
+        const couponForm = reactive({ code: '', discountType: 'percent', discountValue: 20, maxUsage: 0 });
+
+        const showBatchCouponDialog = ref(false);
+        const showBatchResultDialog = ref(false);
+        const batchCouponForm = reactive({ productId: '', discountType: 'percent', discountValue: 20, maxUsage: 0, count: 10, prefix: '', expiresAt: '' });
+        const batchResult = reactive({ codes: [], warning: '' });
+        const batchResultText = ref('');
+
+        // ── API 请求 ──
+        async function api(path, options = {}) {
+          const res = await fetch('/api' + path, {
+            ...options,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + adminToken.value,
+              ...(options.headers || {}),
+            },
+          });
+          const data = await res.json();
+          if (!data.ok && res.status === 401) {
+            authenticated.value = false;
+            localStorage.removeItem('adminToken');
+            ElementPlus.ElMessage.error('认证失败，请重新登录');
+          }
+          return data;
+        }
+
+        // ── 登录 ──
+        async function login() {
+          if (!adminToken.value) {
+            ElementPlus.ElMessage.warning('请输入管理令牌');
+            return;
+          }
+          loading.value = true;
+          try {
+            const data = await api('/health');
+            if (data.ok) {
+              authenticated.value = true;
+              localStorage.setItem('adminToken', adminToken.value);
+              loadData();
+            } else {
+              ElementPlus.ElMessage.error('登录失败');
+            }
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        function logout() {
+          authenticated.value = false;
+          localStorage.removeItem('adminToken');
+        }
+
+        // ── 加载数据 ──
+        async function loadData() {
+          loading.value = true;
+          try {
+            await Promise.all([loadProducts(), loadOrders(), loadCoupons()]);
+            // 统计
+            const health = await api('/health');
+            if (health.ok) {
+              stats.products = health.stats.products;
+              stats.availableCards = health.stats.availableCards;
+              stats.totalCards = health.stats.totalCards;
+            }
+            stats.totalOrders = orderList.value.length;
+            stats.pendingOrders = orderList.value.filter(o => o.status === 'pending').length;
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        async function loadProducts() {
+          const params = new URLSearchParams();
+          if (productFilter.q) params.set('q', productFilter.q.trim());
+          if (productFilter.active !== '') params.set('active', productFilter.active);
+          if (productFilter.category) params.set('category', productFilter.category);
+          params.set('page', String(productFilter.page));
+          params.set('limit', String(productFilter.limit));
+
+          const data = await api('/admin/products?' + params.toString());
+          if (data.ok) {
+            productList.value = data.products || [];
+            productTotal.value = data.total || 0;
+          }
+        }
+
+        async function loadCards() {
+          let path = '/admin/cards?limit=' + cardFilter.limit + '&page=' + cardFilter.page;
+          if (cardFilter.productId) path += '&productId=' + encodeURIComponent(cardFilter.productId);
+          if (cardFilter.batchId) path += '&batchId=' + encodeURIComponent(cardFilter.batchId);
+          if (cardFilter.status) path += '&status=' + encodeURIComponent(cardFilter.status);
+          const data = await api(path);
+          if (data.ok) {
+            cardList.value = data.results || [];
+            cardTotal.value = data.total || 0;
+          }
+        }
+
+        async function loadOrders() {
+          let path = '/admin/orders?limit=' + orderFilter.limit + '&page=' + orderFilter.page;
+          if (orderFilter.orderNo) path += '&q=' + encodeURIComponent(orderFilter.orderNo);
+          if (orderFilter.buyerContact) path += '&buyerContact=' + encodeURIComponent(orderFilter.buyerContact);
+          if (orderFilter.status) path += '&status=' + encodeURIComponent(orderFilter.status);
+          if (orderFilter.paymentMethod) path += '&paymentMethod=' + encodeURIComponent(orderFilter.paymentMethod);
+          const data = await api(path);
+          if (data.ok) {
+            orderList.value = data.orders;
+            orderTotal.value = data.total || 0;
+          }
+        }
+
+        async function loadCoupons() {
+          const params = new URLSearchParams();
+          if (couponFilter.productId) params.set('productId', couponFilter.productId);
+          if (couponFilter.status) params.set('status', couponFilter.status);
+          if (couponFilter.search) params.set('search', couponFilter.search.trim());
+          params.set('page', String(couponFilter.page));
+          params.set('limit', String(couponFilter.limit));
+
+          const data = await api('/admin/coupons?' + params.toString());
+          if (data.ok) {
+            couponList.value = data.results || [];
+            couponTotal.value = data.total || 0;
+          }
+        }
+
+        async function loadSystemConfig() {
+          const data = await api('/admin/system-config');
+          if (!data.ok) {
+            ElementPlus.ElMessage.error(data.error || '系统参数加载失败');
+            return;
+          }
+          systemConfigDefinitions.value = data.definitions || [];
+          for (const item of systemConfigDefinitions.value) {
+            const value = data.config?.[item.key] ?? item.defaultValue ?? '';
+            systemConfigForm[item.key] = item.type === 'integer' ? Number(value) : String(value);
+          }
+        }
+
+        async function saveSystemConfig(row) {
+          const raw = systemConfigForm[row.key];
+          const value = row.type === 'integer' ? String(raw ?? '') : String(raw ?? '');
+          const data = await api('/admin/system-config', {
+            method: 'PUT',
+            body: JSON.stringify({ key: row.key, value }),
+          });
+          if (data.ok) {
+            systemConfigForm[row.key] = row.type === 'integer' ? Number(data.value) : data.value;
+            ElementPlus.ElMessage.success('系统参数已保存');
+          } else {
+            ElementPlus.ElMessage.error(data.error || '系统参数保存失败');
+          }
+        }
+
+        async function loadBalanceTransactions() {
+          const params = new URLSearchParams();
+          if (balanceTxFilter.email) params.set('email', balanceTxFilter.email.trim());
+          if (balanceTxFilter.type) params.set('type', balanceTxFilter.type);
+          if (balanceTxFilter.referenceType) params.set('referenceType', balanceTxFilter.referenceType.trim());
+          if (balanceTxFilter.referenceId) params.set('referenceId', balanceTxFilter.referenceId.trim());
+          params.set('limit', String(balanceTxFilter.limit));
+          params.set('offset', String((balanceTxFilter.page - 1) * balanceTxFilter.limit));
+
+          loading.value = true;
+          try {
+            const data = await api('/admin/balance-transactions?' + params.toString());
+            if (data.ok) {
+              balanceTransactionList.value = data.transactions || [];
+              balanceTxTotal.value = data.total || 0;
+            } else {
+              ElementPlus.ElMessage.error(data.error || '余额流水查询失败');
+            }
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        function handleBalanceTxPage(page) {
+          balanceTxFilter.page = page;
+          loadBalanceTransactions();
+        }
+
+        function handleBalanceTxSize(size) {
+          balanceTxFilter.limit = size;
+          balanceTxFilter.page = 1;
+          loadBalanceTransactions();
+        }
+
+        function jumpToPage(currentPageRef, totalRef, loadFn) {
+          return function() {
+            const input = document.getElementById(currentPageRef);
+            const total = totalRef.value || 0;
+            const maxPage = Math.max(1, Math.ceil(total / 20));
+            const page = parseInt(input.value, 10);
+            if (!page || page < 1 || page > maxPage) {
+              ElementPlus.ElMessage.warning('请输入 1 ~ ' + maxPage + ' 的页码');
+              return;
+            }
+            loadFn(page);
+          };
+        }
+
+        function handleProductPage(page) {
+          productFilter.page = page;
+          loadProducts();
+        }
+
+        function handleProductSize(size) {
+          productFilter.limit = size;
+          productFilter.page = 1;
+          loadProducts();
+        }
+
+        function handleCardPage(page) {
+          cardFilter.page = page;
+          loadCards();
+        }
+
+        function handleCardSize(size) {
+          cardFilter.limit = size;
+          cardFilter.page = 1;
+          loadCards();
+        }
+
+        function handleOrderPage(page) {
+          orderFilter.page = page;
+          loadOrders();
+        }
+
+        function handleOrderSize(size) {
+          orderFilter.limit = size;
+          orderFilter.page = 1;
+          loadOrders();
+        }
+
+        function handleCouponPage(page) {
+          couponFilter.page = page;
+          loadCoupons();
+        }
+
+        function handleCouponSize(size) {
+          couponFilter.limit = size;
+          couponFilter.page = 1;
+          loadCoupons();
+        }
+
+        // ── 商品操作 ──
+        function showProductDialog(product = null) {
+          editingProduct.value = product;
+          if (product) {
+            Object.assign(productForm, {
+              id: product.id, title: product.title, category: product.category,
+              price: product.priceCents / 100, currency: product.currency || 'CNY',
+              issueMode: product.issueMode || 'direct',
+              description: product.description, coverUrl: product.coverUrl,
+              salesCopy: product.salesCopy || '', tagsJson: product.tagsJson || '[]',
+              sortOrder: product.sortOrder,
+              active: !!product.active,
+            });
+          } else {
+            Object.assign(productForm, {
+              id: '', title: '', category: 'card', price: 0, currency: 'CNY',
+              issueMode: 'direct',
+              description: '', coverUrl: '', salesCopy: '', tagsJson: '[]',
+              sortOrder: 100, active: true,
+            });
+          }
+          productDialogVisible.value = true;
+        }
+
+        async function saveProduct() {
+          loading.value = true;
+          try {
+            const body = {
+              id: productForm.id,
+              title: productForm.title,
+              description: productForm.description || '',
+              salesCopy: productForm.salesCopy || '',
+              coverUrl: productForm.coverUrl || '',
+              tagsJson: productForm.tagsJson || '[]',
+              priceCents: Math.round(productForm.price * 100),
+              currency: productForm.currency || 'CNY',
+              issueMode: productForm.issueMode || 'direct',
+              category: productForm.category || '',
+              sortOrder: Number(productForm.sortOrder || 100),
+              active: !!productForm.active,
+            };
+
+            if (editingProduct.value) {
+              await api('/admin/products/' + editingProduct.value.id, { method: 'PATCH', body: JSON.stringify(body) });
+            } else {
+              await api('/admin/products', { method: 'POST', body: JSON.stringify(body) });
+            }
+
+            productDialogVisible.value = false;
+            ElementPlus.ElMessage.success('保存成功');
+            loadProducts();
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        async function deleteProduct(id) {
+          const data = await api('/admin/products/' + id, { method: 'DELETE' });
+          if (data.ok) {
+            ElementPlus.ElMessage.success('删除成功');
+            loadProducts();
+          } else {
+            ElementPlus.ElMessage.error(data.error || '删除失败');
+          }
+        }
+
+        // ── 卡密操作 ──
+        async function importCards() {
+          if (!importForm.productId) {
+            ElementPlus.ElMessage.warning('请选择商品');
+            return;
+          }
+          const cards = importForm.cardsText.split('\n').map(s => s.trim()).filter(Boolean);
+          if (!cards.length) {
+            ElementPlus.ElMessage.warning('请输入卡密内容');
+            return;
+          }
+
+          loading.value = true;
+          try {
+            const data = await api('/admin/cards/import', {
+              method: 'POST',
+              body: JSON.stringify({
+                productId: importForm.productId,
+                batchName: importForm.batchName,
+                cards: cards.map((secret, index) => ({
+                  accountLabel: `card-${String(index + 1).padStart(3, '0')}`,
+                  deliverySecret: secret,
+                  deliveryNote: '',
+                })),
+              }),
+            });
+            if (data.ok) {
+              ElementPlus.ElMessage.success('成功导入 ' + data.imported + ' 张卡密');
+              showImportDialog.value = false;
+              importForm.cardsText = '';
+              loadCards();
+              loadData();
+            } else {
+              ElementPlus.ElMessage.error(data.error || '导入失败');
+            }
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        async function deleteCard(id) {
+          const data = await api('/admin/cards/' + id, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'disabled' }),
+          });
+          if (data.ok) {
+            ElementPlus.ElMessage.success('已禁用');
+            loadCards();
+          }
+        }
+
+        // ── 订单操作 ──
+        async function confirmOrder(id) {
+          loading.value = true;
+          try {
+            const data = await api('/admin/orders/' + id + '/mark-paid', { method: 'POST' });
+            if (data.ok) {
+              ElementPlus.ElMessage.success('订单已确认');
+              loadOrders();
+            } else {
+              ElementPlus.ElMessage.error(data.error || '确认失败');
+            }
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        async function cancelOrder(id) {
+          loading.value = true;
+          try {
+            const data = await api('/admin/orders/' + id + '/cancel', { method: 'POST' });
+            if (data.ok) {
+              ElementPlus.ElMessage.success('订单已取消');
+              loadOrders();
+            }
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        // ── 优惠码操作 ──
+        async function saveCoupon() {
+          loading.value = true;
+          try {
+            const data = await api('/admin/coupons', {
+              method: 'POST',
+              body: JSON.stringify(couponForm),
+            });
+            if (data.ok) {
+              ElementPlus.ElMessage.success('创建成功');
+              showCouponDialog.value = false;
+              loadCoupons();
+            } else {
+              ElementPlus.ElMessage.error(data.error || '创建失败');
+            }
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        async function deleteCoupon(id) {
+          const data = await api('/admin/coupons/' + id, { method: 'DELETE' });
+          if (data.ok) {
+            ElementPlus.ElMessage.success('删除成功');
+            loadCoupons();
+          }
+        }
+
+        // ── 批量生成优惠码 ──
+        async function generateCoupons() {
+          loading.value = true;
+          try {
+            const { count, prefix, ...rest } = batchCouponForm;
+            const body = {
+              ...rest,
+              count: Number(count),
+              maxUses: Number(rest.maxUsage ?? 0),
+              active: true,
+            };
+            if (prefix) body.prefix = String(prefix).trim();
+            delete body.maxUsage;
+
+            const data = await api('/admin/coupons/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+
+            if (data && Array.isArray(data.codes)) {
+              batchResult.codes = data.codes || [];
+              batchResult.warning = data.warning || '';
+              batchResultText.value = batchResult.codes.join('\n');
+              showBatchCouponDialog.value = false;
+              showBatchResultDialog.value = true;
+            } else {
+              ElementPlus.ElMessage.error(data?.error || '批量生成失败');
+            }
+          } catch (e) {
+            console.error('Batch generate coupons failed', e);
+          }
+          loading.value = false;
+        }
+
+        async function copyBatchCodes() {
+          if (!batchResultText.value) return;
+          try {
+            await navigator.clipboard.writeText(batchResultText.value);
+            ElementPlus.ElMessage.success('已复制全部优惠码');
+          } catch {
+            ElementPlus.ElMessage.error('复制失败，请手动选择');
+          }
+        }
+
+        // ── 支付配置操作 ──
+
+        /**
+         * 加载所有支付渠道元数据 + 配置状态。
+         * 接口返回每个 Provider 的字段定义和前端的配置状态。
+         */
+        async function loadPaymentProviders() {
+          const data = await api('/admin/payment/providers');
+          if (data.ok && data.providers) {
+            paymentProviders.value = data.providers;
+            // 检查是否有 CREDENTIALS_ENCRYPTION_KEY
+            hasEncryptionKey.value = data.providers.length > 0;
+          }
+        }
+
+        /**
+         * 打开支付配置编辑对话框。
+         * 清空表单，根据 Provider 字段定义初始化空值。
+         * 已配置的敏感字段留空（后端保留原值）。
+         */
+        function showPaymentConfig(provider) {
+          editingPayment.value = provider;
+          // 清空表单
+          for (const key of Object.keys(paymentForm)) {
+            delete paymentForm[key];
+          }
+          // 初始化所有字段为空
+          for (const field of provider.fields) {
+            paymentForm[field.key] = '';
+          }
+          paymentDialogVisible.value = true;
+        }
+
+        /**
+         * 保存支付配置。
+         * 只提交非空的字段值（空值表示不更新）。
+         */
+        async function savePaymentConfig() {
+          loading.value = true;
+          try {
+            // 收集非空的配置项
+            const config = {};
+            for (const field of editingPayment.value.fields) {
+              const val = paymentForm[field.key];
+              if (val && val.trim()) {
+                config[field.key] = val.trim();
+              }
+            }
+
+            if (Object.keys(config).length === 0) {
+              ElementPlus.ElMessage.warning('请至少填写一个配置项');
+              return;
+            }
+
+            const data = await api('/admin/payment/configs/' + editingPayment.value.name, {
+              method: 'PUT',
+              body: JSON.stringify(config),
+            });
+            if (data.ok) {
+              ElementPlus.ElMessage.success('支付配置已保存');
+              paymentDialogVisible.value = false;
+              loadPaymentProviders();
+            } else {
+              ElementPlus.ElMessage.error(data.error || '保存失败');
+            }
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        /**
+         * 删除支付配置（停用支付渠道）。
+         */
+        async function deletePaymentConfig(providerName) {
+          loading.value = true;
+          try {
+            const data = await api('/admin/payment/configs/' + providerName, {
+              method: 'DELETE',
+            });
+            if (data.ok) {
+              ElementPlus.ElMessage.success('支付配置已删除');
+              loadPaymentProviders();
+            } else {
+              ElementPlus.ElMessage.error(data.error || '删除失败');
+            }
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        // ── 工具函数 ──
+        function formatTime(iso) {
+          if (!iso) return '-';
+          return new Date(iso).toLocaleString('zh-CN');
+        }
+
+        function cardStatusType(status) {
+          const map = { available: 'success', locked: 'warning', issued: 'primary', returned: 'info' };
+          return map[status] || 'info';
+        }
+
+        function orderStatusType(status) {
+          const map = { pending: 'warning', paid: 'primary', issued: 'success', cancelled: 'info', expired: 'danger' };
+          return map[status] || 'info';
+        }
+
+        function orderStatusText(status) {
+          const map = { pending: '待支付', paid: '已支付', issued: '已发放', cancelled: '已取消', expired: '已过期' };
+          return map[status] || status;
+        }
+
+        function balanceTxTypeText(type) {
+          const map = { voucher_redeem: '充值码入账', order_spend: '余额消费', refund: '退款', adjustment: '人工调账' };
+          return map[type] || type;
+        }
+
+        function balanceTxTypeTag(type) {
+          const map = { voucher_redeem: 'success', order_spend: 'warning', refund: 'primary', adjustment: 'info' };
+          return map[type] || 'info';
+        }
+
+        // ── 监听标签切换 ──
+        Vue.watch(activeTab, (tab) => {
+          if (tab === 'cards') loadCards();
+          if (tab === 'orders') loadOrders();
+          if (tab === 'balances') loadBalanceTransactions();
+          if (tab === 'config') loadSystemConfig();
+          if (tab === 'payment') loadPaymentProviders();
+          if (tab === 'products') loadProducts();
+          if (tab === 'coupons') loadCoupons();
+        });
+
+        Vue.watch(productFilter, () => {
+          productFilter.page = 1;
+          loadProducts();
+        }, { deep: true });
+
+        Vue.watch(cardFilter, () => {
+          cardFilter.page = 1;
+          loadCards();
+        }, { deep: true });
+
+        Vue.watch(orderFilter, () => {
+          orderFilter.page = 1;
+          loadOrders();
+        }, { deep: true });
+
+        Vue.watch(couponFilter, () => {
+          couponFilter.page = 1;
+          loadCoupons();
+        }, { deep: true });
+
+        // ── 初始化 ──
+        onMounted(() => {
+          if (adminToken.value) {
+            authenticated.value = true;
+            loadData();
+          }
+        });
+
+        return {
+          authenticated, adminToken, loading, activeTab,
+          stats, productList, cardList, orderList, couponList, balanceTransactionList, balanceTxTotal,
+          productTotal, cardTotal, orderTotal, couponTotal,
+          systemConfigDefinitions, systemConfigForm,
+          productFilter, cardFilter, orderFilter, couponFilter, balanceTxFilter,
+          productDialogVisible, editingProduct, productForm,
+          showImportDialog, importForm,
+          showCouponDialog, couponForm,
+          showBatchCouponDialog, showBatchResultDialog, batchCouponForm, batchResult, batchResultText,
+          // 支付配置
+          paymentProviders, paymentDialogVisible, editingPayment, paymentForm, hasEncryptionKey,
+          login, logout,
+          showProductDialog, saveProduct, deleteProduct,
+          loadProducts, loadCards, loadOrders, importCards, deleteCard,
+          loadBalanceTransactions, handleBalanceTxPage, handleBalanceTxSize,
+          handleProductPage, handleProductSize, handleCardPage, handleCardSize,
+          handleOrderPage, handleOrderSize, handleCouponPage, handleCouponSize, jumpToPage,
+          loadSystemConfig, saveSystemConfig,
+          confirmOrder, cancelOrder,
+          saveCoupon, deleteCoupon,
+          generateCoupons, copyBatchCodes,
+          // 支付配置方法
+          loadPaymentProviders, showPaymentConfig, savePaymentConfig, deletePaymentConfig,
+          formatTime, cardStatusType, orderStatusType, orderStatusText, balanceTxTypeText, balanceTxTypeTag,
+        };
+      },
+    });
+
+    app.use(ElementPlus);
+    app.mount('#app');
+  </script>
+</body>
+</html>

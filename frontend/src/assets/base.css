@@ -1,0 +1,327 @@
+/* ═══════════════════════════════════════════════════════
+   Shop — Base Design Tokens
+   简洁大方，暗色为主，Telegram 主题自动适配
+   ═══════════════════════════════════════════════════════ */
+
+:root {
+  /* ── 色彩（H5 默认暗色主题，Telegram 会通过 JS 覆盖） ── */
+  --tg-bg: #0a0e17;
+  --tg-bg-rgb: 10, 14, 23;
+  --tg-text: #f0f2f5;
+  --tg-hint: #9aa4b2;
+  --tg-link: #3b82f6;
+  --tg-btn: #60a5fa;
+  --tg-btn-text: #ffffff;
+  --tg-secondary-bg: #151b28;
+  --tg-secondary-bg-rgb: 21, 27, 40;
+  --tg-header-bg: #0a0e17;
+  --tg-bottom-bar-bg: #111827;
+  --tg-top-bar-bg: #0a0e17;
+  --tg-destructive: #ef4444;
+  --tg-section-bg: #151b28;
+
+  /* ── 管理后台尺寸变量 ── */
+  --admin-sidebar-w: 160px;
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --surface: rgba(255, 255, 255, 0.04);
+  --surface-hover: rgba(255, 255, 255, 0.08);
+  --overlay: rgba(0, 0, 0, 0.55);
+
+  /* ── 圆角 ── */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-full: 9999px;
+
+  /* ── 阴影 ── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+
+  /* ── 动画 ── */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+
+  /* ── 字体 ── */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+
+  /* ── 管理后台尺寸变量（在 @media 中覆盖） ── */
+  --admin-content-pad: 10px;
+  --admin-card-pad: 10px;
+  --admin-cell-pad: 8px 10px;
+  --admin-font-base: 14px;
+  --admin-font-sm: 12px;
+
+  /* ── 前端页面尺寸变量（在 @media 中覆盖） ── */
+  --content-pad: 16px;
+  --card-pad: 16px;
+  --grid-gap: 12px;
+  --section-mb: 28px;
+  --font-section-title: 20px;
+}
+
+/* ── 小桌面断点（对应 sidebar Always-visible 的最小宽度 + 24px 冗余） ── */
+@media (min-width: 770px) {
+  :root {
+    --admin-content-pad: 12px;
+    --admin-card-pad: 12px;
+    --admin-cell-pad: 8px 12px;
+
+    /* 前端页面 */
+    --content-pad: 20px;
+    --card-pad: 18px;
+    --grid-gap: 16px;
+    --font-section-title: 22px;
+  }
+}
+
+/* ── 大桌面断点 ── */
+@media (min-width: 1024px) {
+  :root {
+    --admin-content-pad: 12px;
+    --admin-card-pad: 12px;
+    --admin-cell-pad: 8px 12px;
+    --admin-font-base: 14px;
+    --admin-font-sm: 12px;
+
+    /* 前端页面 */
+    --content-pad: 20px;
+    --card-pad: 18px;
+    --grid-gap: 16px;
+    --section-mb: 28px;
+  }
+}
+
+/* ── Reset ── */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--tg-bg);
+  color: var(--tg-text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: var(--tg-link);
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: var(--tg-text, #333);
+}
+
+/* ── 下拉框主题适配 ── */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--tg-bg, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: var(--r-md, 8px);
+  color: var(--tg-text, #333);
+  padding: 8px 32px 8px 12px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+}
+
+/* 下拉面板在深色主题下不可控，但至少保证控件本体与主题一致 */
+option {
+  background: var(--tg-bg, #fff);
+  color: var(--tg-text, #333);
+}
+
+/* ── 复选框/单选框主题适配 ── */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--tg-btn, #3b82f6);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* ── 通用工具类 ── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ── 输入框 ── */
+input[type="text"],
+input[type="email"],
+input[type="search"],
+input[type="password"],
+input[type="number"],
+input[inputmode="numeric"],
+textarea {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--tg-text);
+  font-size: 15px;
+  line-height: 1.5;
+  transition: border-color var(--duration-fast) var(--ease-out);
+  outline: none;
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--tg-btn);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--tg-hint);
+}
+
+/* ── 按钮 ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: var(--r-md);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.btn-primary {
+  background: var(--tg-btn);
+  color: var(--tg-btn-text);
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--tg-text);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--tg-hint);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  color: var(--tg-text);
+  background: var(--surface);
+}
+
+/* ── 骨架屏 ── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface) 25%,
+    var(--surface-hover) 50%,
+    var(--surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--r-md);
+}
+
+/* ── 淡入动画 ── */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-up {
+  animation: fadeInUp var(--duration-slow) var(--ease-out) forwards;
+}
+
+/* ── 状态色 ── */
+.status-success { color: #22c55e; }
+.status-warning { color: #f59e0b; }
+.status-error { color: #ef4444; }
+.status-info { color: var(--tg-link); }
+
+/* ── 结果提示框 ── */
+.result-box {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.result-box:empty {
+  display: none;
+}

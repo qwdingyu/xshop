@@ -1,0 +1,57 @@
+{
+  // 项目名称 — 部署后自动生成 <name>.workers.dev 域名
+  "name": "cf-shop",
+
+  // Worker 入口文件
+  "main": "src/index.ts",
+
+  // 兼容性日期 — 锁定 Workers 运行时 API 版本
+  "compatibility_date": "2026-05-24",
+
+  // 静态资源配置（Cloudflare Assets）
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "not_found_handling": "none",
+    "run_worker_first": true
+  },
+
+  // 公开商品图片和展示渠道 Logo。默认使用本地模拟；生产部署前用 Wrangler 创建同名远程 Bucket。
+  "r2_buckets": [
+    {
+      "binding": "PRODUCT_MEDIA",
+      "bucket_name": "cf-shop-public-media"
+    }
+  ],
+
+  // 可观测性（日志 + 指标）
+  "observability": {
+    "enabled": true
+  },
+
+  // 非敏感环境变量（敏感值请用 wrangler secret put 设置）
+  "vars": {
+    "APP_ORIGIN": "https://shop.example.com"
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // 必需 secrets（由部署脚本自动设置，不要写在这里）：
+  //
+  //   TURSO_URL                      — 数据库连接 URL
+  //   TURSO_TOKEN                    — 数据库认证 Token
+    //   ADMIN_TOKEN                    — 管理后台认证（首次登录用，后续可改）
+    //   JWT_SECRET                     — Telegram 管理登录的一次性 JWT 签名密钥
+  //   RATE_LIMIT_SALT                — IP 哈希盐值（可选，无默认值）
+  //   CREDENTIALS_ENCRYPTION_KEY     — AES-256 加密密钥（支付配置加密）
+  //
+  // 可在 admin 后台系统配置中设置（无需 secrets）：
+  //   turnstile_site_key / turnstile_secret_key
+  //   resend_api_key / email_from
+  //   以及其他 system-config-definitions.json 中的配置项
+  //
+  // 支付渠道配置在 admin 后台「收款配置」页设置，使用 CREDENTIALS_ENCRYPTION_KEY 加密存储
+  //
+  // 本地开发时写入 .dev.vars 文件（已加入 .gitignore）
+  // ═══════════════════════════════════════════════════════════════
+}

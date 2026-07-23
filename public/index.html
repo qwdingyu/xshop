@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<!-- Legacy static page kept only as historical fallback content. Worker routes serve /_app/index.html instead. -->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>发卡商城</title>
+  <meta name="description" content="发卡商城 — 安全、快捷的数字商品自动发卡平台">
+  <meta name="keywords" content="发卡,自动发卡,数字商品,卡密商城">
+  <link rel="canonical" href="">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="发卡商城">
+  <meta property="og:description" content="安全、快捷的数字商品自动发卡平台">
+  <meta property="og:url" content="">
+  <meta name="twitter:card" content="summary">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Store",
+    "name": "发卡商城",
+    "description": "安全、快捷的数字商品自动发卡平台",
+    "url": ""
+  }
+  </script>
+  <style>
+    /* ── 暗色主题 ── */
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a2e;
+      --surface-hover: #1f1f3a;
+      --border: #2a2a4a;
+      --text: #e0e0e0;
+      --text-muted: #888;
+      --primary: #6c63ff;
+      --primary-hover: #5a52e0;
+      --success: #4caf50;
+      --danger: #ef5350;
+      --warning: #ff9800;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── 布局 ── */
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      text-align: center;
+      padding: 40px 20px 20px;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      background: linear-gradient(135deg, var(--primary), #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    header p { color: var(--text-muted); margin-top: 8px; }
+
+    /* ── 商品列表 ── */
+    .product-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+      margin: 30px 0;
+    }
+
+    .product-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .product-card:hover {
+      background: var(--surface-hover);
+      border-color: var(--primary);
+      transform: translateY(-2px);
+    }
+
+    .product-card h3 { font-size: 1.2rem; margin-bottom: 8px; }
+    .product-card .desc { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px; }
+    .product-card .price {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--primary);
+    }
+    .product-card .stock {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+    .product-card .stock.low { color: var(--warning); }
+    .product-card .stock.out { color: var(--danger); }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      background: var(--primary);
+      color: #fff;
+      margin-left: 8px;
+    }
+
+    /* ── 表单 ── */
+    .order-form {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+      margin: 30px 0;
+    }
+
+    .order-form.active { display: block; }
+
+    .order-form h2 { margin-bottom: 20px; }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .form-group input, .form-group select {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 1rem;
+    }
+
+    .form-group input:focus, .form-group select:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 12px 28px;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn:hover { background: var(--primary-hover); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    /* ── 订单结果 ── */
+    .order-result {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+      margin: 30px 0;
+      text-align: center;
+    }
+
+    .order-result.active { display: block; }
+
+    .order-result .order-no {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: var(--primary);
+      margin: 12px 0;
+    }
+
+    /* ── 订单查询 ── */
+    .lookup-form {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+      margin: 30px 0;
+    }
+
+    .lookup-form h2 { margin-bottom: 16px; }
+
+    .lookup-row {
+      display: flex;
+      gap: 12px;
+    }
+
+    .lookup-row input { flex: 1; }
+
+    /* ── 卡密展示 ── */
+    .card-list {
+      text-align: left;
+      margin-top: 16px;
+    }
+
+    .card-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+      font-family: monospace;
+      word-break: break-all;
+    }
+
+    /* ── 提示 ── */
+    .toast {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 12px 24px;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.9rem;
+      z-index: 1000;
+      display: none;
+    }
+    .toast.error { background: var(--danger); }
+    .toast.success { background: var(--success); }
+
+    /* ── 底部 ── */
+    footer {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    /* ── 加载动画 ── */
+    .loading { display: inline-block; width: 16px; height: 16px; border: 2px solid #fff; border-top: 2px solid transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <!-- 提示框 -->
+  <div id="toast" class="toast"></div>
+
+  <div class="container">
+    <!-- 头部 -->
+    <header>
+      <h1>发卡商城</h1>
+      <p>自动发卡，即买即用</p>
+    </header>
+
+    <!-- 商品列表 -->
+    <section id="productSection">
+      <div id="productGrid" class="product-grid">
+        <p style="color:var(--text-muted)">加载中...</p>
+      </div>
+    </section>
+
+    <!-- 下单表单 -->
+    <section id="orderForm" class="order-form">
+      <h2>购买商品</h2>
+      <p id="selectedProduct" style="margin-bottom:16px;color:var(--text-muted)"></p>
+      <div class="form-group">
+        <label>购买数量</label>
+        <input type="number" id="quantity" value="1" min="1" max="100">
+      </div>
+      <div class="form-group">
+        <label>邮箱（接收卡密）</label>
+        <input type="email" id="buyerEmail" placeholder="your@email.com">
+      </div>
+      <div class="form-group">
+        <label>优惠码（可选）</label>
+        <input type="text" id="couponCode" placeholder="输入优惠码">
+      </div>
+      <div style="display:flex;gap:12px;margin-top:20px">
+        <button class="btn" id="submitOrder" onclick="submitOrder()">提交订单</button>
+        <button class="btn btn-secondary" onclick="hideOrderForm()">返回</button>
+      </div>
+    </section>
+
+    <!-- 订单结果 -->
+    <section id="orderResult" class="order-result">
+      <h2>订单创建成功</h2>
+      <p class="order-no" id="resultOrderNo"></p>
+      <p id="resultInfo" style="color:var(--text-muted);margin-bottom:16px"></p>
+      <button class="btn" onclick="resetView()">继续购买</button>
+    </section>
+
+    <!-- 订单查询 -->
+    <section class="lookup-form">
+      <h2>订单查询</h2>
+      <div class="lookup-row">
+        <input type="text" id="lookupOrderNo" placeholder="订单号">
+        <input type="email" id="lookupEmail" placeholder="邮箱">
+        <button class="btn" onclick="lookupOrder()">查询</button>
+      </div>
+      <div id="lookupResult" style="margin-top:16px"></div>
+    </section>
+  </div>
+
+  <footer>
+    <p>Powered by cf-shop</p>
+  </footer>
+
+  <script>
+    // ── 全局状态 ──
+    let products = [];
+    let selectedProductId = null;
+
+    // ── 工具函数 ──
+    function showToast(msg, type = 'error') {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'toast ' + type;
+      t.style.display = 'block';
+      setTimeout(() => t.style.display = 'none', 3000);
+    }
+
+    function formatPrice(cents) {
+      return '¥' + (cents / 100).toFixed(2);
+    }
+
+    // ── 加载商品 ──
+    async function loadProducts() {
+      try {
+        const res = await fetch('/api/products');
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error);
+        products = data.products;
+        renderProducts();
+      } catch (err) {
+        document.getElementById('productGrid').innerHTML =
+          '<p style="color:var(--danger)">加载失败: ' + err.message + '</p>';
+      }
+    }
+
+    function renderProducts() {
+      const grid = document.getElementById('productGrid');
+      if (!products.length) {
+        grid.innerHTML = '<p style="color:var(--text-muted)">暂无商品</p>';
+        return;
+      }
+      grid.innerHTML = products.map(p => {
+        let stockClass = '';
+        let stockText = '库存: ' + p.availableStock;
+        if (p.isOutOfStock) { stockClass = 'out'; stockText = '已售罄'; }
+        else if (p.isLowStock) { stockClass = 'low'; stockText = '库存紧张: ' + p.availableStock; }
+
+        const discount = p.originalPriceCents > p.priceCents
+          ? '<span class="badge">折扣</span>' : '';
+
+        return '<div class="product-card" onclick="selectProduct(\'' + p.id + '\')">' +
+          '<h3>' + p.name + discount + '</h3>' +
+          '<div class="desc">' + (p.description || '') + '</div>' +
+          '<div class="price">' + formatPrice(p.priceCents) +
+            (p.originalPriceCents > p.priceCents
+              ? ' <s style="color:var(--text-muted);font-size:0.9rem">' + formatPrice(p.originalPriceCents) + '</s>'
+              : '') +
+          '</div>' +
+          '<div class="stock ' + stockClass + '">' + stockText + '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    // ── 选择商品 ──
+    function selectProduct(id) {
+      const p = products.find(x => x.id === id);
+      if (!p || p.isOutOfStock) {
+        showToast('该商品已售罄');
+        return;
+      }
+      selectedProductId = id;
+      document.getElementById('selectedProduct').textContent =
+        p.name + ' — ' + formatPrice(p.priceCents);
+      document.getElementById('orderForm').classList.add('active');
+      document.getElementById('productSection').style.display = 'none';
+    }
+
+    function hideOrderForm() {
+      document.getElementById('orderForm').classList.remove('active');
+      document.getElementById('productSection').style.display = '';
+    }
+
+    function resetView() {
+      document.getElementById('orderResult').classList.remove('active');
+      document.getElementById('productSection').style.display = '';
+      loadProducts();
+    }
+
+    // ── 提交订单 ──
+    async function submitOrder() {
+      const btn = document.getElementById('submitOrder');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="loading"></span> 提交中...';
+
+      try {
+        const body = {
+          productId: selectedProductId,
+          quantity: parseInt(document.getElementById('quantity').value) || 1,
+          buyerEmail: document.getElementById('buyerEmail').value.trim(),
+          couponCode: document.getElementById('couponCode').value.trim() || undefined,
+          idempotencyKey: crypto.randomUUID(),
+        };
+
+        if (!body.buyerEmail) throw new Error('请输入邮箱');
+        if (!body.productId) throw new Error('请选择商品');
+
+        const res = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error);
+
+        // 显示结果
+        document.getElementById('orderForm').classList.remove('active');
+        document.getElementById('orderResult').classList.add('active');
+        document.getElementById('resultOrderNo').textContent = data.order.orderNo;
+        document.getElementById('resultInfo').textContent =
+          '金额: ' + formatPrice(data.order.paidCents) +
+          ' | 状态: ' + data.order.status +
+          ' | 过期时间: ' + new Date(data.order.expiresAt).toLocaleTimeString();
+      } catch (err) {
+        showToast(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '提交订单';
+      }
+    }
+
+    // ── 订单查询 ──
+    async function lookupOrder() {
+      const orderNo = document.getElementById('lookupOrderNo').value.trim();
+      const email = document.getElementById('lookupEmail').value.trim();
+
+      if (!orderNo || !email) {
+        showToast('请输入订单号和邮箱');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/orders/lookup?orderNo=' +
+          encodeURIComponent(orderNo) + '&email=' + encodeURIComponent(email));
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error);
+
+        const o = data.order;
+        let html = '<div style="text-align:left;background:var(--bg);padding:16px;border-radius:8px;border:1px solid var(--border)">';
+        html += '<p><b>订单号:</b> ' + o.orderNo + '</p>';
+        html += '<p><b>商品:</b> ' + o.productName + '</p>';
+        html += '<p><b>金额:</b> ' + formatPrice(o.paidCents) + '</p>';
+        html += '<p><b>状态:</b> ' + o.status + '</p>';
+        html += '<p><b>时间:</b> ' + new Date(o.createdAt).toLocaleString() + '</p>';
+
+        if (o.cards && o.cards.length) {
+          html += '<div class="card-list"><b>卡密信息:</b>';
+          o.cards.forEach((c, i) => {
+            html += '<div class="card-item">#' + (i + 1) + ': ' + c.cardData + '</div>';
+          });
+          html += '</div>';
+        }
+        html += '</div>';
+
+        document.getElementById('lookupResult').innerHTML = html;
+      } catch (err) {
+        showToast(err.message);
+      }
+    }
+
+    // ── 初始化 ──
+    loadProducts();
+  </script>
+</body>
+</html>

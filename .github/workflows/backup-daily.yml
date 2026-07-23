@@ -1,0 +1,96 @@
+# 每日导出 Turso SQLite 快照，加密后保存为 GitHub Artifact。
+name: Daily Database Backup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TURSO_CLI_VERSION: v1.0.30
+  TURSO_CLI_LINUX_X64_SHA256: 0ddecc55970fa9c7a237555095ca069fb9b0deec5ab82fe2ec5726f684e65e6d
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Validate backup configuration
+        env:
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+          TURSO_DB_NAME: ${{ vars.TURSO_DB_NAME }}
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
+          BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+        run: |
+          missing=()
+          for name in TURSO_API_TOKEN TURSO_DB_NAME TURSO_URL TURSO_TOKEN BACKUP_ENCRYPTION_PASSPHRASE; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required backup configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked Node dependencies
+        run: npm run deps:ci -- --ignore-scripts --no-audit --no-fund
+
+      - name: Install pinned Turso CLI
+        run: |
+          archive="$RUNNER_TEMP/turso-cli.tar.gz"
+          curl -sSfL "https://github.com/tursodatabase/turso-cli/releases/download/${TURSO_CLI_VERSION}/turso-cli_Linux_x86_64.tar.gz" -o "$archive"
+          echo "${TURSO_CLI_LINUX_X64_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" turso
+          sudo install -m 0755 "$RUNNER_TEMP/turso" /usr/local/bin/turso
+          turso --version
+
+      - name: Install SQLite tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlite3
+
+      - name: Export, validate, and encrypt backup
+        env:
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+          TURSO_DB_NAME: ${{ vars.TURSO_DB_NAME }}
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
+          BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+        run: bash scripts/12-ops-maintenance.sh backup-remote
+
+      - name: Reject plaintext backup artifacts
+        run: |
+          if find backups -type f ! -name '*.enc' ! -name '*.sha256' | grep -q .; then
+            echo "Plaintext backup file detected" >&2
+            exit 1
+          fi
+
+      - name: Upload encrypted backup
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: turso-backup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            backups/*.enc
+            backups/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Summary
+        run: |
+          echo "## Database backup" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: encrypted SQLite snapshot uploaded" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Retention: 30 days" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Files:" >> "$GITHUB_STEP_SUMMARY"
+          find backups -maxdepth 1 -type f -printf '  - %f (%s bytes)\n' >> "$GITHUB_STEP_SUMMARY"

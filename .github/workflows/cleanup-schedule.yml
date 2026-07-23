@@ -1,0 +1,42 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# 定时清理过期资源（Free 套餐无 Cron Trigger 的替代方案）
+#
+# 每 2 小时调用 /api/admin/cleanup 接口
+# ═══════════════════════════════════════════════════════════════════════════════
+name: Cleanup Expired Resources
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call cleanup API
+        env:
+          APP_URL: ${{ vars.APP_ORIGIN }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$ADMIN_TOKEN" ]; then
+            echo "Missing APP_ORIGIN or ADMIN_TOKEN" >&2
+            exit 1
+          fi
+          echo "=== 清理过期资源 ==="
+          echo "时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "URL: ${APP_URL}/api/admin/cleanup"
+
+          HTTP_CODE=$(curl -sS -o /tmp/cleanup-response.json -w "%{http_code}" \
+            -X POST "${APP_URL}/api/admin/cleanup" \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Content-Type: application/json")
+
+          echo "HTTP 状态码: $HTTP_CODE"
+          cat /tmp/cleanup-response.json | jq . 2>/dev/null || cat /tmp/cleanup-response.json
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "cleanup 返回 HTTP $HTTP_CODE" >&2
+            exit 1
+          fi

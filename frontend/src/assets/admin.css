@@ -1,0 +1,674 @@
+/* ═══════════════════════════════════════════════════════
+   Admin 管理后台 — 共享样式
+   所有 Admin 表格页面统一引用，消除 6 页面的 CSS 重复
+   ═══════════════════════════════════════════════════════ */
+
+/* ── 页面切换过渡（Vue <Transition> 配合 AdminLayout） ── */
+.admin-fade-enter-active,
+.admin-fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+.admin-fade-enter-from,
+.admin-fade-leave-to {
+  opacity: 0;
+}
+
+/* ── 页面容器 ── */
+.admin-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ── 工具栏 ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--tg-bg, #fff);
+  border-radius: var(--r-lg, 12px);
+  border: 0.5px solid var(--border, #e5e7eb);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.filters input,
+.filters select {
+  padding: 8px 10px;
+  border: 0.5px solid var(--border, #e5e7eb);
+  border-radius: var(--r-md, 8px);
+  background: var(--tg-bg, #fff);
+  color: var(--tg-text, #333);
+  font-size: 14px;
+  height: 34px;
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 120px;
+  max-width: 260px;
+}
+
+.filters select {
+  padding-right: 32px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.filters .btn {
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 14px;
+  font-size: 14px;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── 表格容器 ── */
+.table-wrap {
+  background: var(--tg-bg, #fff);
+  border-radius: var(--r-lg, 12px);
+  border: 0.5px solid var(--border, #e5e7eb);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── 表格 ── */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--admin-font-base, 14px);
+  table-layout: auto;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: var(--admin-cell-pad, 8px 10px);
+  text-align: left;
+  border-bottom: 0.5px solid var(--border, #e5e7eb);
+  white-space: normal;
+  overflow-wrap: break-word;
+  min-width: 50px;
+}
+
+.admin-table th {
+  color: var(--tg-hint, #999);
+  font-weight: 600;
+  font-size: var(--admin-font-sm, 13px);
+  background: var(--tg-secondary-bg, #f5f7fa);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.admin-table tbody tr:hover {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.03));
+}
+
+.admin-table tbody tr {
+  transition: background-color 0.12s ease;
+}
+
+.admin-table tbody tr.is-selected,
+.admin-table tbody tr.is-selected:nth-child(even) {
+  background: rgba(59, 130, 246, 0.09);
+}
+
+.admin-table tbody tr.is-selected:hover,
+.admin-table tbody tr.is-selected:nth-child(even):hover {
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.admin-table tbody tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.01);
+}
+
+.admin-table tbody tr:nth-child(even):hover {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.03));
+}
+
+/* ── 空状态 ── */
+.empty-text {
+  padding: 18px;
+  text-align: center;
+  color: var(--tg-hint, #999);
+  font-size: 13px;
+}
+
+.table-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 0.5px solid rgba(239, 68, 68, 0.24);
+  border-radius: var(--r-lg, 12px);
+  background: rgba(239, 68, 68, 0.07);
+  color: var(--tg-destructive, #dc2626);
+  font-size: 13px;
+}
+
+.table-error .btn {
+  flex: 0 0 auto;
+}
+
+/* ── 标签 ── */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.tag-success {
+  background: rgba(52, 199, 89, 0.12);
+  color: #34c759;
+}
+
+.tag-warning {
+  background: rgba(255, 149, 0, 0.14);
+  color: #ff9500;
+}
+
+.tag-info {
+  background: rgba(0, 122, 255, 0.14);
+  color: #0a84ff;
+}
+
+.tag-muted {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--tg-hint, #999);
+}
+
+.muted-text {
+  color: var(--tg-hint, #999);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tag-danger {
+  background: rgba(255, 59, 48, 0.12);
+  color: #ff3b30;
+}
+
+/* ── 小按钮 ── */
+.btn-xs,
+.btn-sm {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: var(--r-sm, 6px);
+}
+
+/* ── 键盘 focus 可见样式 ── */
+:focus-visible {
+  outline: 2px solid var(--tg-btn, #3b82f6);
+  outline-offset: 2px;
+}
+
+/* ── 滚动条（Webkit） ── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+/* ── 危险操作按钮 ── */
+.btn-danger {
+  background: var(--tg-destructive, #ef4444);
+  color: #fff;
+  border-color: transparent;
+}
+.btn-danger:hover {
+  background: #dc2626;
+  border-color: transparent;
+}
+
+/* ── 表格操作按钮组（同一单元格内多个按钮） ── */
+.table-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+/* ── 模态框表单 ── */
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--tg-text, #333);
+}
+
+.modal-form label span:first-child {
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.modal-form input,
+.modal-form textarea {
+  padding: 8px 10px;
+  border: 0.5px solid var(--border, #e5e7eb);
+  border-radius: var(--r-md, 8px);
+  background: var(--tg-bg, #fff);
+  color: var(--tg-text, #333);
+  font-size: 13px;
+}
+
+.modal-form select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 8px 32px 8px 10px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.modal-form textarea {
+  resize: vertical;
+}
+
+.checkbox-label {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+}
+
+/* ── 详情弹窗 ── */
+.detail-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-section {
+  padding: 10px;
+  border-radius: var(--r-md, 8px);
+  background: var(--tg-secondary-bg, #f5f7fa);
+}
+
+.detail-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.detail-label {
+  color: var(--tg-hint, #999);
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.detail-value {
+  font-weight: 500;
+  word-break: break-all;
+  text-align: right;
+  font-size: 13px;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── 骨架屏行（用于表格 loading） ── */
+@keyframes shimmer-row {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-row td {
+  padding: 8px;
+}
+
+.skeleton-cell {
+  height: 14px;
+  background: linear-gradient(90deg, var(--surface, #f0f0f0) 25%, var(--surface-hover, #e0e0e0) 50%, var(--surface, #f0f0f0) 75%);
+  background-size: 200% 100%;
+  animation: shimmer-row 1.5s ease-in-out infinite;
+  border-radius: var(--r-sm, 6px);
+}
+
+/* ═══════════════════════════════════════════════════════
+   小桌面断点（≥770px，对应 sidebar 可见的最小宽度）
+   admin-content-pad / admin-cell-pad 由 base.css 变量驱动
+   ═══════════════════════════════════════════════════════ */
+@media (min-width: 770px) {
+  .admin-page {
+    gap: 14px;
+  }
+
+  .toolbar {
+    gap: 14px;
+  }
+
+  .empty-text {
+    padding: 24px;
+    font-size: 13px;
+  }
+
+  .modal-form {
+    gap: 14px;
+  }
+
+  .detail-box {
+    gap: 12px;
+  }
+
+  .detail-section {
+    padding: 12px;
+  }
+
+  .detail-row {
+    padding: 5px 0;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   桌面断点覆盖（≥1024px）
+   ═══════════════════════════════════════════════════════ */
+@media (min-width: 1024px) {
+  .admin-page {
+    gap: 16px;
+  }
+
+  .toolbar {
+    gap: 16px;
+  }
+
+  .filters {
+    gap: 10px;
+  }
+
+  .filters input,
+  .filters select {
+    padding: 8px 12px;
+    font-size: 14px;
+  }
+
+  .filters select {
+    padding-right: 32px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+  }
+
+  .table-wrap {
+    border-radius: var(--r-xl, 16px);
+  }
+
+  .admin-table th,
+  .admin-table td {
+    padding: var(--admin-cell-pad, 10px 14px);
+  }
+
+  .empty-text {
+    padding: 28px 24px;
+    font-size: 14px;
+  }
+
+  .modal-form {
+    gap: 14px;
+  }
+
+  .modal-form label {
+    font-size: 13px;
+  }
+
+  .modal-form input,
+  .modal-form textarea {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+
+  .detail-box {
+    gap: 14px;
+  }
+
+  .detail-section {
+    padding: 14px;
+  }
+
+  .detail-row {
+    padding: 6px 0;
+    font-size: 13px;
+  }
+}
+
+/* ── 批量选择操作条 ── */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 0.5px solid rgba(59, 130, 246, 0.24);
+  border-radius: var(--r-lg, 12px);
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--tg-text, #333);
+  font-size: 13px;
+  box-shadow: 0 6px 18px rgba(59, 130, 246, 0.08);
+}
+
+.bulk-bar > span:first-child {
+  font-weight: 600;
+}
+
+.bulk-bar[aria-busy='true'] {
+  cursor: progress;
+}
+
+.bulk-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.table-command-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  min-height: 34px;
+  flex-wrap: wrap;
+}
+
+.table-command-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.selection-summary {
+  color: var(--tg-text, #333);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.table-command-actions[aria-busy='true'] {
+  cursor: progress;
+}
+
+.select-cell {
+  width: 42px;
+  min-width: 42px !important;
+  text-align: center !important;
+}
+
+.select-cell input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--tg-btn, #3b82f6);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.select-cell input:disabled {
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    align-items: stretch;
+  }
+
+  .toolbar-actions,
+  .toolbar > .actions {
+    flex: 1 0 100%;
+    width: 100%;
+  }
+
+  .filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    flex: 1 0 100%;
+    width: 100%;
+  }
+
+  .filters input,
+  .filters select {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .filters .btn {
+    width: 100%;
+  }
+
+  .toolbar-actions,
+  .toolbar > .actions {
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+
+  .toolbar-actions .btn,
+  .toolbar > .actions .btn {
+    flex: 0 0 auto;
+  }
+
+  .bulk-bar {
+    align-items: stretch;
+  }
+
+  .bulk-actions {
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+
+  .bulk-actions .btn {
+    flex: 0 0 auto;
+  }
+
+  .table-command-bar {
+    align-items: stretch;
+  }
+
+  .table-command-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+
+  .table-command-actions .selection-summary {
+    flex: 1 0 100%;
+  }
+
+  .table-command-actions .btn {
+    flex: 0 0 auto;
+  }
+
+  .select-cell input {
+    width: 22px;
+    height: 22px;
+  }
+
+  .admin-table .btn-xs {
+    min-height: 30px;
+    padding: 4px 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-table tbody tr {
+    transition: none;
+  }
+}
