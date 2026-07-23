@@ -272,14 +272,22 @@ onMounted(loadData)
 
 <style>@import '@/assets/admin.css';</style>
 <style scoped>
-.voucher-stats { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 8px; margin-bottom: 12px; }
-.stat-item { min-height: 76px; padding: 10px 12px; border: 0.5px solid var(--border, #e5e7eb); border-radius: var(--r-md, 8px); background: var(--tg-bg, #fff); display: flex; flex-direction: column; gap: 3px; }
-.stat-item span, .stat-item small { color: var(--tg-hint, #6b7280); font-size: 12px; }
-.stat-item strong { font-size: 20px; }
-.code-cell code { white-space: nowrap; font-size: 12px; }
-.generated-result { display: flex; flex-direction: column; gap: 10px; }
-.generated-result p { margin: 0; color: var(--tg-hint, #6b7280); font-size: 13px; }
-.generated-result textarea { width: 100%; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
-@media (max-width: 640px) { .voucher-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* stat-strip/stat-item / generated-result / modal-actions → admin.css */
+.voucher-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.code-cell code {
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .voucher-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 </style>

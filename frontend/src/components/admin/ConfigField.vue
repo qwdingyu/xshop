@@ -76,10 +76,10 @@ const statusText = computed(() => {
 
 <style scoped>
 .config-card {
-  background: var(--tg-bg, #fff);
+  background: var(--tg-secondary-bg, #151b28);
   border-radius: var(--r-lg, 12px);
   padding: 12px;
-  border: 0.5px solid var(--border, #e5e7eb);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -87,13 +87,17 @@ const statusText = computed(() => {
 }
 
 .config-card-primary {
-  border-color: rgba(59, 130, 246, 0.14);
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.05), rgba(59, 130, 246, 0.02));
+  border-color: var(--admin-accent-border, rgba(245, 158, 11, 0.38));
+  background: linear-gradient(
+    180deg,
+    var(--admin-accent-soft, rgba(245, 158, 11, 0.14)),
+    rgba(245, 158, 11, 0.04)
+  );
 }
 
 .config-card:hover {
-  border-color: var(--tg-btn, #409eff);
-  box-shadow: var(--shadow-sm, 0 4px 12px rgba(0, 0, 0, 0.08));
+  border-color: rgba(245, 158, 11, 0.55);
+  box-shadow: var(--shadow-sm, 0 4px 12px rgba(0, 0, 0, 0.3));
 }
 
 .config-label {
@@ -101,12 +105,13 @@ const statusText = computed(() => {
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  color: var(--tg-text, #333);
+  color: var(--tg-text, #f0f2f5);
 }
 
 .config-label span:first-child {
   font-weight: 500;
   font-size: 12px;
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .config-help,
@@ -115,21 +120,21 @@ const statusText = computed(() => {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--tg-hint, #777);
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .config-effect {
-  color: var(--tg-text, #444);
+  color: var(--tg-text, #f0f2f5);
 }
 
 .config-label input[type='number'],
 .config-label input[type='password'],
 .config-label textarea {
   padding: 8px 10px;
-  border: 0.5px solid var(--border, #e5e7eb);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-md, 8px);
-  background: var(--tg-bg, #fff);
-  color: var(--tg-text, #333);
+  background: var(--surface, rgba(255, 255, 255, 0.04));
+  color: var(--tg-text, #f0f2f5);
   font-size: 13px;
 }
 
@@ -139,8 +144,14 @@ const statusText = computed(() => {
 }
 
 .config-label input[type='checkbox'] {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  accent-color: var(--admin-accent, #f59e0b);
+  cursor: pointer;
 }
 
 .config-actions {
@@ -156,14 +167,14 @@ const statusText = computed(() => {
 }
 
 .config-status-saving {
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .config-status-saved {
-  color: #16a34a;
+  color: #6ee7b7;
 }
 
 .config-status-error {
-  color: #dc2626;
+  color: #fca5a5;
 }
 </style>

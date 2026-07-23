@@ -417,21 +417,24 @@ onMounted(loadData)
   flex-direction: column;
   gap: 4px;
   padding: 10px 12px;
-  border: 0.5px solid var(--border, #e5e7eb);
+  border: 1px solid var(--admin-accent-border, rgba(245, 158, 11, 0.38));
   border-radius: var(--r-lg, 12px);
-  background: var(--tg-bg, #fff);
-  color: var(--tg-text, #111827);
+  background: var(--admin-accent-soft, rgba(245, 158, 11, 0.1));
+  color: var(--tg-text, #f0f2f5);
   text-align: left;
   cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .preset-btn:hover {
-  border-color: var(--tg-btn, #409eff);
+  border-color: rgba(245, 158, 11, 0.55);
+  background: var(--admin-accent-hover, rgba(245, 158, 11, 0.18));
 }
 
 .preset-btn.is-active {
-  border-color: rgba(59, 130, 246, 0.5);
-  background: rgba(59, 130, 246, 0.1);
+  border-color: var(--admin-accent, #f59e0b);
+  background: rgba(245, 158, 11, 0.22);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.2);
 }
 
 .preset-btn:disabled {
@@ -440,7 +443,17 @@ onMounted(loadData)
 }
 
 .preset-btn--ghost {
-  background: rgba(107, 114, 128, 0.06);
+  background: var(--surface, rgba(255, 255, 255, 0.04));
+  border-color: var(--border, rgba(255, 255, 255, 0.1));
+}
+
+.preset-btn--ghost.is-active {
+  border-color: var(--admin-accent-border, rgba(245, 158, 11, 0.38));
+  background: var(--admin-accent-soft, rgba(245, 158, 11, 0.14));
+}
+
+.preset-btn.is-active .preset-title {
+  color: var(--admin-accent-text, #fbbf24);
 }
 
 .preset-title {
@@ -450,18 +463,11 @@ onMounted(loadData)
 
 .preset-desc {
   font-size: 12px;
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
   line-height: 1.4;
 }
 
-.detail-json {
-  background: var(--tg-secondary-bg, #f5f7fa);
-  padding: 12px;
-  border-radius: var(--r-md, 8px);
-  font-size: 13px;
-  overflow: auto;
-  max-height: 50vh;
-}
+/* detail-json 由 admin.css 提供 */
 
 @media (max-width: 640px) {
   .preset-strip {

@@ -113,7 +113,7 @@ onBeforeUnmount(() => {
 .modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--overlay, rgba(0, 0, 0, 0.55));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -131,11 +131,13 @@ onBeforeUnmount(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--tg-bg, #fff);
+  /* 比页面底略抬一层，避免与遮罩糊成一团 */
+  background: var(--tg-secondary-bg, #151b28);
+  color: var(--tg-text);
   border-radius: var(--r-lg, 12px);
   padding: 22px;
-  border: 0.5px solid var(--border, #e5e7eb);
-  box-shadow: var(--shadow-lg, 0 20px 50px rgba(0, 0, 0, 0.18));
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  box-shadow: var(--shadow-lg, 0 20px 50px rgba(0, 0, 0, 0.45));
   overflow: hidden;
 }
 
@@ -143,6 +145,10 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   margin: 0 0 16px;
   font-size: 18px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--tg-text);
+  line-height: 1.35;
 }
 
 .modal-body {

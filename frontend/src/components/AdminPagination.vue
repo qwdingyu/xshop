@@ -120,15 +120,15 @@ watch(() => props.page, () => {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  background: var(--tg-bg, #fff);
-  border: 0.5px solid var(--border, #e5e7eb);
+  background: var(--tg-secondary-bg, #151b28);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-lg, 12px);
   padding: 10px 12px;
 }
 
 .pagination-info {
   font-size: 13px;
-  color: var(--tg-hint, #999);
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .pagination-right {
@@ -144,22 +144,22 @@ watch(() => props.page, () => {
   align-items: center;
   gap: 4px;
   font-size: 13px;
-  color: var(--tg-hint, #999);
+  color: var(--tg-hint, #9aa4b2);
   white-space: nowrap;
 }
 
 .limit-select {
   padding: 4px 28px 4px 8px;
-  border: 0.5px solid var(--border, #e5e7eb);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-sm, 8px);
-  background: var(--tg-bg, #fff);
-  color: var(--tg-text, #333);
+  background: var(--surface, rgba(255, 255, 255, 0.04));
+  color: var(--tg-text, #f0f2f5);
   font-size: 13px;
   outline: none;
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239aa4b2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 6px center;
 }
@@ -174,6 +174,7 @@ watch(() => props.page, () => {
 .pagination-page {
   font-size: 14px;
   white-space: nowrap;
+  color: var(--tg-text, #f0f2f5);
 }
 
 /* 跳转输入 */
@@ -182,17 +183,17 @@ watch(() => props.page, () => {
   align-items: center;
   gap: 4px;
   font-size: 13px;
-  color: var(--tg-hint, #999);
+  color: var(--tg-hint, #9aa4b2);
   white-space: nowrap;
 }
 
 .jump-input {
   width: 48px;
   padding: 4px 6px;
-  border: 0.5px solid var(--border, #e5e7eb);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-sm, 8px);
-  background: var(--tg-bg, #fff);
-  color: var(--tg-text, #333);
+  background: var(--surface, rgba(255, 255, 255, 0.04));
+  color: var(--tg-text, #f0f2f5);
   font-size: 13px;
   text-align: center;
   outline: none;

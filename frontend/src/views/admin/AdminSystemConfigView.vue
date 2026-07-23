@@ -448,27 +448,10 @@ onMounted(loadData)
 </style>
 
 <style scoped>
-.page-title {
-  margin: 0;
-  font-size: 16px;
-}
-
-.skeleton-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.skeleton-line {
-  height: 12px;
-  border-radius: 6px;
-  background: var(--tg-secondary-bg, #f5f7fa);
-}
-
-.skeleton-line.w-80 {
-  width: 80%;
-}
-
+/*
+ * page-title / skeleton-* / status-banner* / config-grid /
+ * config-section* / config-count → admin.css
+ */
 .config-scroll {
   flex: 1;
   min-height: 0;
@@ -479,77 +462,11 @@ onMounted(loadData)
   gap: 14px;
 }
 
-.status-banner {
-  padding: 10px 12px;
-  border-radius: var(--r-md, 8px);
-  font-size: 13px;
-  line-height: 1.5;
-  border: 0.5px solid var(--border, #e5e7eb);
-}
-
-.status-banner-info {
-  background: rgba(59, 130, 246, 0.08);
-  color: #1d4ed8;
-  border-color: rgba(59, 130, 246, 0.22);
-}
-
-.status-banner-success {
-  background: rgba(34, 197, 94, 0.08);
-  color: #15803d;
-  border-color: rgba(34, 197, 94, 0.22);
-}
-
-.status-banner-error {
-  background: rgba(239, 68, 68, 0.08);
-  color: #b91c1c;
-  border-color: rgba(239, 68, 68, 0.22);
-}
-
-.config-section {
-  background: var(--tg-bg, #fff);
-  border: 0.5px solid var(--border, #e5e7eb);
-  border-radius: var(--r-xl, 16px);
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.config-section-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 10px;
-  border-bottom: 0.5px solid var(--border, #e5e7eb);
-}
-
-.config-section-head h3 {
-  margin: 0;
-  font-size: 15px;
-  color: var(--tg-text, #222);
-}
-
-.config-section-head p {
-  margin: 4px 0 0;
-  color: var(--tg-hint, #777);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
 .config-section-head--advanced {
   align-items: flex-start;
 }
 
-.config-count {
-  flex: 0 0 auto;
-  white-space: nowrap;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: var(--tg-secondary-bg, #f5f7fa);
-  color: var(--tg-hint, #777);
-  font-size: 12px;
-}
-
+/* 系统配置字段卡：比通用 two-cols 更宽的自适应列 */
 .config-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -567,28 +484,28 @@ onMounted(loadData)
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  color: var(--tg-text, #333);
+  color: var(--tg-text, #f0f2f5);
   font-size: 13px;
   font-weight: 600;
 }
 
 .config-group-title span:last-child {
-  color: var(--tg-hint, #777);
+  color: var(--tg-hint, #9aa4b2);
   font-size: 12px;
   font-weight: 400;
 }
 
 .config-empty {
-  border: 0.5px dashed var(--border, #e5e7eb);
+  border: 1px dashed var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-lg, 12px);
-  background: var(--tg-secondary-bg, #f5f7fa);
+  background: var(--surface, rgba(255, 255, 255, 0.04));
 }
 
 .config-test-panel {
-  border: 0.5px solid var(--border, #e5e7eb);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-lg, 12px);
   padding: 10px;
-  background: var(--tg-secondary-bg, #f8fafc);
+  background: var(--surface-2, rgba(255, 255, 255, 0.07));
 }
 
 .config-test-main {
@@ -603,17 +520,17 @@ onMounted(loadData)
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
-  color: var(--tg-hint, #777);
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .config-test-main input {
   min-width: 0;
-  border: 0.5px solid var(--border, #e5e7eb);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-md, 8px);
   padding: 8px 10px;
   font-size: 13px;
-  background: var(--tg-bg, #fff);
-  color: var(--tg-text, #222);
+  background: var(--surface, rgba(255, 255, 255, 0.04));
+  color: var(--tg-text, #f0f2f5);
 }
 
 .config-test-status {
@@ -627,15 +544,15 @@ onMounted(loadData)
   margin: 8px 0 0;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--tg-hint, #777);
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .config-test-status--success {
-  color: #15803d;
+  color: #6ee7b7;
 }
 
 .config-test-status--error {
-  color: #b91c1c;
+  color: #fca5a5;
 }
 
 .danger-section {
@@ -656,7 +573,7 @@ onMounted(loadData)
   padding: 10px 12px;
   border: 0.5px solid rgba(220, 38, 38, 0.22);
   border-radius: var(--r-md, 8px);
-  background: var(--tg-bg, #fff);
+  background: var(--tg-secondary-bg, #151b28);
   cursor: pointer;
 }
 
@@ -676,19 +593,19 @@ onMounted(loadData)
   min-width: 0;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--tg-hint, #777);
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .danger-profile-body strong {
   font-size: 13px;
-  color: var(--tg-text, #222);
+  color: var(--tg-text, #f0f2f5);
 }
 
 .danger-profile-detail {
   margin: 0 0 10px;
   font-size: 12px;
   line-height: 1.5;
-  color: #9a3412;
+  color: #fdba74;
 }
 
 .danger-panel {
@@ -703,7 +620,7 @@ onMounted(loadData)
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
-  color: var(--tg-hint, #777);
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .danger-panel input {
@@ -712,15 +629,15 @@ onMounted(loadData)
   border-radius: var(--r-md, 8px);
   padding: 8px 10px;
   font-size: 13px;
-  background: var(--tg-bg, #fff);
-  color: var(--tg-text, #222);
+  background: var(--tg-secondary-bg, #151b28);
+  color: var(--tg-text, #f0f2f5);
 }
 
 .danger-status {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
-  color: #b91c1c;
+  color: #fca5a5;
   word-break: break-word;
 }
 

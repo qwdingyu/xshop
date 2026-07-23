@@ -1039,9 +1039,9 @@ watch(() => form.coverUrl, () => {
 .product-cover-thumb {
   display: block;
   object-fit: cover;
-  border: 1px solid var(--border, #e5e7eb);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: 6px;
-  background: var(--tg-secondary-bg, #fff);
+  background: var(--tg-secondary-bg, #151b28);
 }
 
 /* ── 商品编辑弹窗：分区、双列、固定脚部 ── */
@@ -1072,7 +1072,7 @@ watch(() => form.coverUrl, () => {
   flex-direction: column;
   gap: 10px;
   padding: 12px 12px 14px;
-  border: 0.5px solid var(--border, rgba(255, 255, 255, 0.12));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
   border-radius: var(--r-md, 8px);
   background: var(--tg-secondary-bg, rgba(0, 0, 0, 0.18));
 }
@@ -1082,7 +1082,7 @@ watch(() => form.coverUrl, () => {
   flex-direction: column;
   gap: 2px;
   padding-bottom: 2px;
-  border-bottom: 0.5px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
   margin-bottom: 2px;
 }
 
@@ -1180,31 +1180,7 @@ watch(() => form.coverUrl, () => {
   opacity: 0.85;
 }
 
-.image-upload-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.image-upload-button {
-  position: relative;
-  overflow: hidden;
-  cursor: pointer;
-}
-
-.image-upload-button.is-disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
-.image-upload-button input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
+/* image-upload-* → admin.css */
 
 .product-cover-thumb {
   width: 48px;
@@ -1212,7 +1188,7 @@ watch(() => form.coverUrl, () => {
 }
 
 .cover-placeholder {
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -1226,16 +1202,16 @@ watch(() => form.coverUrl, () => {
 
 .price-preview-line strong {
   font-weight: 600;
-  color: var(--tg-btn, #60a5fa);
+  color: var(--admin-accent-text, #fbbf24);
 }
 
 .inline-callout {
   margin: 0;
   padding: 8px 10px;
   border-radius: var(--r-md, 8px);
-  background: rgba(96, 165, 250, 0.1);
-  border: 0.5px solid rgba(96, 165, 250, 0.22);
-  color: var(--tg-hint, #cbd5e1);
+  background: var(--admin-accent-soft, rgba(245, 158, 11, 0.12));
+  border: 1px solid var(--admin-accent-border, rgba(245, 158, 11, 0.38));
+  color: var(--tg-text, #f0f2f5);
   font-size: 11px;
   line-height: 1.45;
 }
@@ -1246,7 +1222,7 @@ watch(() => form.coverUrl, () => {
   gap: 8px;
   padding: 10px;
   border-radius: var(--r-md, 8px);
-  border: 0.5px solid var(--border, rgba(255, 255, 255, 0.1));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   background: var(--tg-bg, rgba(0, 0, 0, 0.15));
 }
 
@@ -1287,7 +1263,7 @@ watch(() => form.coverUrl, () => {
 
 .sort-context {
   margin: -4px 0 10px;
-  color: var(--admin-text-muted, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1324,7 +1300,7 @@ watch(() => form.coverUrl, () => {
   gap: 6px;
   margin-top: 6px;
   font-size: 12px;
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
   white-space: nowrap;
 }
 
@@ -1336,11 +1312,11 @@ watch(() => form.coverUrl, () => {
   background: var(--tg-secondary-bg, #111827);
   border: 1px solid var(--border, rgba(255, 255, 255, 0.18));
   border-radius: 6px;
-  caret-color: var(--tg-btn, #60a5fa);
+  caret-color: var(--admin-accent, #f59e0b);
 }
 
 .channel-inline-sort input:focus {
-  border-color: var(--tg-btn, #60a5fa);
+  border-color: var(--admin-accent, #f59e0b);
 }
 
 .channel-inline-sort input:disabled {
@@ -1361,7 +1337,7 @@ watch(() => form.coverUrl, () => {
   gap: 8px;
   margin: 0;
   padding: 10px 12px 12px;
-  border: 0.5px solid var(--border, rgba(255, 255, 255, 0.12));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
   border-radius: var(--r-md, 8px);
   background: var(--tg-secondary-bg, rgba(0, 0, 0, 0.18));
 }
@@ -1416,11 +1392,11 @@ watch(() => form.coverUrl, () => {
 
 .stock-hint-label {
   font-weight: 600;
-  color: var(--tg-text, #333);
+  color: var(--tg-text, #f0f2f5);
 }
 
 .stock-hint-desc {
-  color: var(--tg-hint, #999);
+  color: var(--tg-hint, #9aa4b2);
   font-size: 12px;
 }
 </style>

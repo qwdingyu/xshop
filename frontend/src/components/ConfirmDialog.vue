@@ -91,21 +91,22 @@ function onOptionChange(key: string, checked: boolean) {
 <style scoped>
 .confirm-message {
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.65;
   /* 支持 askConfirm(`...\n\n...`) 多段说明；否则 HTML 会把换行压成空格 */
   white-space: pre-line;
-  color: var(--tg-text, #333);
+  color: var(--tg-text, #f0f2f5);
 }
 
+/* 选项区：与弹窗同属暗色表面体系，用 elevated surface 分层，禁止浅色底板 */
 .confirm-options {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 14px;
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--tg-surface-2, #f5f6f8);
-  border: 1px solid var(--tg-border, #e5e7eb);
+  gap: 2px;
+  margin-top: 6px;
+  padding: 6px;
+  border-radius: var(--r-md, 8px);
+  background: var(--surface-2, rgba(255, 255, 255, 0.07));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
 }
 
 .confirm-option {
@@ -115,28 +116,45 @@ function onOptionChange(key: string, checked: boolean) {
   cursor: pointer;
   font-size: 13px;
   line-height: 1.45;
-  color: var(--tg-text, #333);
+  color: var(--tg-text);
+  padding: 10px;
+  border-radius: var(--r-sm, 6px);
+  transition: background-color var(--duration-fast, 150ms) var(--ease-out, ease);
+}
+
+.confirm-option:hover {
+  background: var(--surface-hover, rgba(255, 255, 255, 0.1));
 }
 
 .confirm-option input {
   margin-top: 2px;
   flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  accent-color: var(--admin-accent, #f59e0b);
 }
 
 .confirm-option-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
 }
 
 .confirm-option-label {
   font-weight: 600;
+  font-size: 13px;
+  color: var(--tg-text);
+  letter-spacing: 0.01em;
 }
 
 .confirm-option-hint {
   font-size: 12px;
-  color: var(--tg-muted, #6b7280);
-  line-height: 1.4;
+  color: var(--tg-hint);
+  line-height: 1.5;
+  opacity: 0.95;
 }
 </style>

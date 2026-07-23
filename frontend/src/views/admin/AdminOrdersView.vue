@@ -88,14 +88,29 @@
     </div>
 
     <div class="table-command-bar">
-      <div class="action-strip">
-        <button class="action-chip" @click="switchTab('pending')">
+      <div class="action-strip" role="group" aria-label="快捷视图">
+        <button
+          type="button"
+          class="action-chip"
+          :class="{ 'is-active': activeTab === 'pending' }"
+          @click="switchTab('pending')"
+        >
           待收款 {{ items.filter((item) => item.status === 'pending').length }}
         </button>
-        <button class="action-chip" @click="switchTab('paid')">
+        <button
+          type="button"
+          class="action-chip"
+          :class="{ 'is-active': activeTab === 'paid' }"
+          @click="switchTab('paid')"
+        >
           待交付 {{ items.filter((item) => item.status === 'paid').length }}
         </button>
-        <button class="action-chip" @click="switchTab('abnormal')">
+        <button
+          type="button"
+          class="action-chip"
+          :class="{ 'is-active': activeTab === 'abnormal' }"
+          @click="switchTab('abnormal')"
+        >
           售后异常 {{ items.filter((item) => ABNORMAL_ORDER_STATUS_SET.has(normalizeOrderStatus(item.status))).length }}
         </button>
       </div>
@@ -1064,7 +1079,7 @@ watch(
 
 <style>@import '@/assets/admin.css';</style>
 <style scoped>
-/* 页面专属样式放这里，只保留非通用样式 */
+/* tabs / action-chip 由 admin.css 琥珀色体系统一；此处仅页面专属 */
 .event-value {
   display: flex;
   flex-wrap: wrap;
@@ -1073,37 +1088,11 @@ watch(
   gap: 6px;
 }
 
-.tabs {
-  display: flex;
-  gap: 6px;
-}
-
 .tab-hint {
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
-  color: var(--tg-hint, #6b7280);
-}
-
-.action-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
-}
-
-.action-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  padding: 7px 12px;
-  border-radius: var(--r-full, 999px);
-  border: 0.5px solid var(--border, #e5e7eb);
-  background: var(--tg-bg, #fff);
-  font-size: 13px;
-  color: var(--tg-text, #333);
-  cursor: pointer;
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .detail-actions {
@@ -1113,32 +1102,10 @@ watch(
   margin-top: 12px;
 }
 
-.tab {
-  padding: 6px 12px;
-  border-radius: var(--r-md, 8px);
-  border: 0.5px solid var(--border, #e5e7eb);
-  background: var(--tg-bg, #fff);
-  color: var(--tg-text, #333);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.tab.active {
-  background: rgba(0, 122, 255, 0.12);
-  color: #007aff;
-  border-color: #007aff;
-}
-
-.detail-json {
-  background: var(--tg-secondary-bg, #f5f7fa);
-  padding: 10px;
-  border-radius: var(--r-md, 8px);
-  font-size: 12px;
-  overflow: auto;
-  max-height: 50vh;
-}
+/* detail-json 由 admin.css 提供 */
 
 @media (max-width: 640px) {
+  /* 小屏保留顶部 Tab，隐藏重复的快捷 chip 条 */
   .tab-hint,
   .action-strip {
     display: none;

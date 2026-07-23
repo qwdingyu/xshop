@@ -1,6 +1,6 @@
 <template>
   <div class="admin-page">
-    <div class="tab-bar" role="tablist" aria-label="余额管理视图">
+    <div class="admin-tab-bar" role="tablist" aria-label="余额管理视图">
       <button
         type="button"
         role="tab"
@@ -720,57 +720,11 @@ onMounted(() => {
 
 <style>@import '@/assets/admin.css';</style>
 <style scoped>
-.tab-bar {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 4px;
-  padding: 3px;
-  border-radius: var(--r-md, 8px);
-  background: var(--tg-secondary-bg, rgba(0, 0, 0, 0.2));
-  width: fit-content;
-  max-width: 100%;
-}
-
-.tab-btn {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--tg-hint, #9ca3af);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 7px 14px;
-  border-radius: 6px;
-  cursor: pointer;
-  line-height: 1.3;
-}
-
-.tab-btn.active {
-  background: var(--tg-bg, #111827);
-  color: var(--tg-text, #e5e7eb);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-}
-
-.balance-helper {
-  margin: 0 0 12px;
-  color: var(--tg-hint, #6b7280);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.balance-helper code {
-  font-size: 11px;
-}
-
-.filter-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--tg-text, #e5e7eb);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
+/*
+ * 共享：admin-tab-bar / balance-helper / filter-check / dir-btn /
+ * is-positive / modal-actions / field-hint → admin.css
+ * 本页仅保留余额快照与调账预览结构。
+ */
 .balance-snapshot {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -781,41 +735,32 @@ onMounted(() => {
 .snapshot-card {
   padding: 12px;
   border-radius: var(--r-lg, 12px);
-  border: 0.5px solid var(--border, #e5e7eb);
-  background: var(--tg-bg, #fff);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  background: var(--tg-secondary-bg, #151b28);
 }
 
 .snapshot-card--primary {
-  background: rgba(59, 130, 246, 0.06);
+  background: var(--admin-accent-soft, rgba(245, 158, 11, 0.12));
+  border-color: var(--admin-accent-border, rgba(245, 158, 11, 0.38));
 }
 
 .snapshot-label {
   font-size: 12px;
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .snapshot-value {
   margin-top: 6px;
   font-size: 22px;
   font-weight: 700;
-  color: var(--tg-text, #111827);
+  color: var(--tg-text, #f0f2f5);
 }
 
 .snapshot-hint {
   margin-top: 4px;
   font-size: 11px;
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
   line-height: 1.4;
-}
-
-.is-positive {
-  color: #16a34a;
-  font-weight: 600;
-}
-
-.is-negative {
-  color: #dc2626;
-  font-weight: 600;
 }
 
 .id-cell,
@@ -833,46 +778,14 @@ onMounted(() => {
   gap: 8px;
 }
 
-.dir-btn {
-  appearance: none;
-  border: 0.5px solid var(--border, rgba(255, 255, 255, 0.16));
-  background: var(--tg-secondary-bg, #111827);
-  color: var(--tg-hint, #9ca3af);
-  border-radius: var(--r-md, 8px);
-  padding: 8px 10px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.dir-btn.active {
-  border-color: var(--tg-btn, #60a5fa);
-  color: var(--tg-text, #e5e7eb);
-  background: rgba(96, 165, 250, 0.12);
-}
-
 .adjust-preview {
   margin: 0;
   font-size: 12px;
-  color: var(--tg-hint, #9ca3af);
+  color: var(--tg-hint, #9aa4b2);
   line-height: 1.45;
 }
 
 .adjust-preview strong {
-  color: var(--tg-btn, #60a5fa);
-}
-
-.adjust-form .field-hint {
-  display: block;
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--tg-hint, #9ca3af);
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
+  color: var(--admin-accent-text, #fbbf24);
 }
 </style>

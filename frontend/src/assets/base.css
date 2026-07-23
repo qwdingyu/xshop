@@ -20,12 +20,38 @@
   --tg-destructive: #ef4444;
   --tg-section-bg: #151b28;
 
-  /* ── 管理后台尺寸变量 ── */
+  /* ── 语义表面 / 边框（暗色主题默认；禁止再用浅色 #fff/#e5e7eb 作暗色 fallback） ── */
   --admin-sidebar-w: 160px;
-  --border-strong: rgba(255, 255, 255, 0.14);
+  --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.16);
   --surface: rgba(255, 255, 255, 0.04);
-  --surface-hover: rgba(255, 255, 255, 0.08);
+  --surface-2: rgba(255, 255, 255, 0.07);
+  --surface-hover: rgba(255, 255, 255, 0.10);
   --overlay: rgba(0, 0, 0, 0.55);
+  /* Admin 快捷筛选 / Tab / 提示：与 /admin/cards 橙色体系对齐（暗底高对比） */
+  --admin-accent: #f59e0b;
+  --admin-accent-soft: rgba(245, 158, 11, 0.14);
+  --admin-accent-border: rgba(245, 158, 11, 0.38);
+  --admin-accent-hover: rgba(245, 158, 11, 0.22);
+  --admin-accent-text: #fbbf24;
+  /* 语义状态字色（暗底可读；禁止再用 #1d4ed8 等浅色主题蓝） */
+  --admin-success: #6ee7b7;
+  --admin-success-soft: rgba(52, 211, 153, 0.12);
+  --admin-success-border: rgba(52, 211, 153, 0.28);
+  --admin-danger: #fca5a5;
+  --admin-danger-soft: rgba(248, 113, 113, 0.12);
+  --admin-danger-border: rgba(248, 113, 113, 0.28);
+  --admin-warning: #fbbf24;
+  --admin-warning-soft: rgba(251, 191, 36, 0.12);
+  --admin-warning-border: rgba(251, 191, 36, 0.28);
+  /* info 在暗色 Admin 中与 accent 对齐，避免弱蓝字 */
+  --admin-info: var(--admin-accent-text);
+  --admin-info-soft: var(--admin-accent-soft);
+  --admin-info-border: var(--admin-accent-border);
+  /* 兼容旧别名：ConfirmDialog 等曾引用未定义的 --tg-surface-2 / --tg-muted */
+  --tg-surface-2: var(--surface-2);
+  --tg-border: var(--border);
+  --tg-muted: var(--tg-hint);
 
   /* ── 圆角 ── */
   --r-sm: 6px;
@@ -137,19 +163,19 @@ input,
 textarea,
 select {
   font: inherit;
-  color: var(--tg-text, #333);
+  color: var(--tg-text, #f0f2f5);
 }
 
-/* ── 下拉框主题适配 ── */
+/* ── 下拉框主题适配（fallback 与 :root 暗色 token 一致） ── */
 select {
   appearance: none;
   -webkit-appearance: none;
-  background: var(--tg-bg, #fff);
-  border: 1px solid var(--border, #e5e7eb);
+  background: var(--tg-bg, #0a0e17);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-md, 8px);
-  color: var(--tg-text, #333);
+  color: var(--tg-text, #f0f2f5);
   padding: 8px 32px 8px 12px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239aa4b2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
   cursor: pointer;
@@ -157,17 +183,20 @@ select {
 
 /* 下拉面板在深色主题下不可控，但至少保证控件本体与主题一致 */
 option {
-  background: var(--tg-bg, #fff);
-  color: var(--tg-text, #333);
+  background: var(--tg-secondary-bg, #151b28);
+  color: var(--tg-text, #f0f2f5);
 }
 
-/* ── 复选框/单选框主题适配 ── */
+/* ── 复选框/单选框主题适配（紧凑尺寸；禁止被文本框规则撑大） ── */
 input[type="checkbox"],
 input[type="radio"] {
-  accent-color: var(--tg-btn, #3b82f6);
-  width: 16px;
-  height: 16px;
+  accent-color: var(--tg-btn, #60a5fa);
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex-shrink: 0;
   cursor: pointer;
+  vertical-align: middle;
 }
 
 /* ── 通用工具类 ── */
@@ -263,11 +292,13 @@ textarea::placeholder {
 .btn-ghost {
   background: transparent;
   color: var(--tg-hint);
+  border: 1px solid transparent;
 }
 
 .btn-ghost:hover:not(:disabled) {
   color: var(--tg-text);
-  background: var(--surface);
+  background: var(--surface-hover);
+  border-color: var(--border);
 }
 
 /* ── 骨架屏 ── */

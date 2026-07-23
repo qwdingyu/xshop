@@ -105,16 +105,18 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: var(--tg-secondary-bg, #f5f7fa);
+  background: var(--tg-bg, #0a0e17);
 }
 
 .login-card {
   width: 100%;
   max-width: 420px;
-  background: var(--tg-bg, #fff);
+  background: var(--tg-secondary-bg, #151b28);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-lg, 12px);
   padding: 26px 22px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-lg, 0 20px 50px rgba(0, 0, 0, 0.45));
+  color: var(--tg-text, #f0f2f5);
 }
 
 .login-title {
@@ -126,7 +128,7 @@ onMounted(() => {
 .login-subtitle {
   margin: 0 0 18px;
   font-size: 13px;
-  color: var(--tg-hint, #999);
+  color: var(--tg-hint, #9aa4b2);
   text-align: center;
 }
 
@@ -141,16 +143,16 @@ onMounted(() => {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  color: var(--tg-text, #333);
+  color: var(--tg-text, #f0f2f5);
 }
 
 .field-label input {
   width: 100%;
   padding: 10px 12px;
-  border: 0.5px solid var(--border, #e5e7eb);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-md, 8px);
-  background: var(--tg-bg, #fff);
-  color: var(--tg-text, #333);
+  background: var(--surface, rgba(255, 255, 255, 0.04));
+  color: var(--tg-text, #f0f2f5);
   font-size: 14px;
 }
 

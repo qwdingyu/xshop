@@ -450,6 +450,7 @@ onMounted(async () => {
 })
 </script>
 
+<style>@import '@/assets/admin.css';</style>
 <style scoped>
 .channel-name,
 .mapping-toolbar,
@@ -478,42 +479,12 @@ onMounted(async () => {
   width: 64px;
   height: 64px;
   object-fit: contain;
-  border: 1px solid var(--border, #e5e7eb);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: 6px;
   background: #fff;
 }
 
-.image-upload-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.image-upload-button {
-  position: relative;
-  overflow: hidden;
-  cursor: pointer;
-}
-
-.image-upload-button.is-disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
-.image-upload-button input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.field-hint {
-  color: var(--admin-text-muted, #6b7280);
-  font-size: 12px;
-  line-height: 1.45;
-}
+/* image-upload-* / field-hint → admin.css */
 
 .mapping-panel {
   display: flex;
@@ -529,20 +500,20 @@ onMounted(async () => {
   min-width: 220px;
   flex: 1;
   padding: 8px 10px;
-  border: 1px solid var(--border, #e5e7eb);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: 6px;
 }
 
 .mapping-list {
   max-height: 52vh;
   overflow: auto;
-  border-block: 1px solid var(--border, #e5e7eb);
+  border-block: 1px solid var(--border, rgba(255, 255, 255, 0.1));
 }
 
 .mapping-row {
   min-height: 46px;
   padding: 7px 4px;
-  border-bottom: 1px solid var(--border, #e5e7eb);
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.1));
 }
 
 .mapping-product {
@@ -556,7 +527,7 @@ onMounted(async () => {
 }
 
 .mapping-product code {
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
   font-size: 11px;
 }
 
@@ -567,7 +538,7 @@ onMounted(async () => {
 .mapping-sort input {
   width: 78px;
   padding: 6px;
-  border: 1px solid var(--border, #e5e7eb);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: 6px;
 }
 

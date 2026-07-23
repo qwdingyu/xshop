@@ -37,10 +37,29 @@
     </div>
 
     <div class="table-command-bar">
-      <div class="quick-strip">
-        <button class="quick-chip" @click="filter.status = 'available'; searchData()">只看可用</button>
-        <button class="quick-chip" @click="filter.status = 'disabled'; searchData()">只看禁用</button>
-        <button class="quick-chip" @click="toggleSameCodeOnly">
+      <div class="quick-strip" role="group" aria-label="快捷筛选">
+        <button
+          type="button"
+          class="quick-chip"
+          :class="{ 'is-active': filter.status === 'available' && !showSameCodeOnly }"
+          @click="filter.status = 'available'; searchData()"
+        >
+          只看可用
+        </button>
+        <button
+          type="button"
+          class="quick-chip"
+          :class="{ 'is-active': filter.status === 'disabled' && !showSameCodeOnly }"
+          @click="filter.status = 'disabled'; searchData()"
+        >
+          只看禁用
+        </button>
+        <button
+          type="button"
+          class="quick-chip"
+          :class="{ 'is-active': showSameCodeOnly }"
+          @click="toggleSameCodeOnly"
+        >
           {{ showSameCodeOnly ? '查看全部库存' : '只看同码库存' }}
         </button>
       </div>
@@ -615,79 +634,19 @@ onMounted(loadData)
 
 <style>@import '@/assets/admin.css';</style>
 <style scoped>
+/* notice-card / relation-cell / secret-cell / same-code-tag → admin.css，勿再复制 */
 .notice-card {
   margin-bottom: 12px;
-  padding: 12px 14px;
-  border-radius: var(--r-md, 8px);
-  border: 0.5px solid rgba(245, 158, 11, 0.24);
-  background: rgba(245, 158, 11, 0.08);
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--tg-text, #111827);
 }
 
 .notice-card strong {
   margin-right: 8px;
-  color: #f59e0b;
 }
 
-.quick-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
-}
-
-.quick-chip {
-  display: inline-flex;
-  align-items: center;
-  white-space: nowrap;
-  padding: 7px 12px;
-  border-radius: var(--r-full, 999px);
-  border: 0.5px solid var(--border, #e5e7eb);
-  background: var(--tg-bg, #fff);
-  font-size: 13px;
-  color: var(--tg-text, #333);
-  cursor: pointer;
-}
-
-.secret-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.relation-cell {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 120px;
-}
-
-.relation-cell small {
-  color: var(--tg-hint, #6b7280);
-  font-size: 11px;
-}
-
-.same-code-tag {
-  display: inline-flex;
-  align-items: center;
-  white-space: nowrap;
-  padding: 2px 6px;
-  border-radius: var(--r-full, 999px);
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--tg-text, #111827);
-  background: rgba(245, 158, 11, 0.12);
-  border: 0.5px solid rgba(245, 158, 11, 0.22);
-}
-
-/* 页面专属样式放这里，只保留非通用样式 */
 .hint {
   margin: 0;
   font-size: 12px;
-  color: var(--tg-hint, #999);
+  color: var(--tg-hint, #9aa4b2);
   line-height: 1.5;
 }
 

@@ -559,7 +559,7 @@ onMounted(() => {
   gap: 12px;
   padding: 14px;
   border-radius: var(--r-lg, 12px);
-  border: 0.5px solid var(--border, rgba(148, 163, 184, 0.22));
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
   background: var(--tg-secondary-bg, #151b28);
 }
 
@@ -647,7 +647,7 @@ onMounted(() => {
 }
 
 .priority-card:focus-visible {
-  outline: 2px solid var(--tg-btn, #60a5fa);
+  outline: 2px solid var(--admin-accent, #f59e0b);
   outline-offset: 2px;
 }
 
@@ -670,8 +670,12 @@ onMounted(() => {
 }
 
 .priority-card--p3 {
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.16), rgba(59, 130, 246, 0.05));
-  border-color: rgba(59, 130, 246, 0.26);
+  background: linear-gradient(
+    180deg,
+    var(--admin-accent-soft, rgba(245, 158, 11, 0.16)),
+    rgba(245, 158, 11, 0.05)
+  );
+  border-color: var(--admin-accent-border, rgba(245, 158, 11, 0.28));
 }
 
 .priority-card--empty {
@@ -710,7 +714,7 @@ onMounted(() => {
 }
 
 .priority-card--p3 .priority-step {
-  background: #2563eb;
+  background: var(--admin-accent, #f59e0b);
 }
 
 .priority-label {
@@ -729,7 +733,7 @@ onMounted(() => {
 }
 
 .priority-card--p3 .priority-label {
-  color: #93c5fd;
+  color: var(--admin-accent-text, #fbbf24);
 }
 
 .priority-cap {
@@ -752,7 +756,7 @@ onMounted(() => {
 }
 
 .priority-value--muted {
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .priority-title {
@@ -773,7 +777,7 @@ onMounted(() => {
   margin-top: 4px;
   font-size: 12px;
   font-weight: 650;
-  color: var(--tg-btn, #60a5fa);
+  color: var(--admin-accent-text, #fbbf24);
 }
 
 .priority-card--p1 .priority-action {
@@ -785,7 +789,7 @@ onMounted(() => {
 }
 
 .priority-card--p3 .priority-action {
-  color: #60a5fa;
+  color: var(--admin-accent-text, #fbbf24);
 }
 
 .card-header-actions {
@@ -794,11 +798,7 @@ onMounted(() => {
   gap: 6px;
 }
 
-.mono-cell {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  color: var(--tg-hint, #9aa4b2);
-}
+/* mono-cell → admin.css */
 
 .stock-badge {
   display: inline-flex;
@@ -851,7 +851,7 @@ onMounted(() => {
   border-radius: var(--r-lg, 12px);
   padding: 14px 14px;
   text-align: center;
-  border: 0.5px solid var(--border, rgba(148, 163, 184, 0.22));
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
 }
 
 .stat-card--clickable {
@@ -862,7 +862,7 @@ onMounted(() => {
 }
 .stat-card--clickable:hover {
   transform: translateY(-1px);
-  border-color: var(--tg-btn, #60a5fa);
+  border-color: var(--admin-accent, #f59e0b);
   box-shadow: var(--shadow-sm, 0 4px 12px rgba(0, 0, 0, 0.22));
 }
 
@@ -880,7 +880,7 @@ onMounted(() => {
 .stat-num {
   font-size: 28px;
   font-weight: 700;
-  color: var(--tg-btn, #60a5fa);
+  color: var(--admin-accent-text, #fbbf24);
 }
 
 .stat-label {
@@ -893,7 +893,7 @@ onMounted(() => {
   background: var(--tg-secondary-bg, #151b28);
   border-radius: var(--r-lg, 12px);
   padding: 14px 14px;
-  border: 0.5px solid var(--border, rgba(148, 163, 184, 0.22));
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
 }
 
 .card-header {
@@ -910,7 +910,7 @@ onMounted(() => {
 
 .card-hint {
   font-size: 12px;
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .ops-grid {
@@ -924,7 +924,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 5px;
   padding: 12px;
-  border: 0.5px solid var(--border, rgba(148, 163, 184, 0.22));
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
   border-radius: var(--r-lg, 12px);
   background: var(--tg-bg, #0a0e17);
   color: var(--tg-text, #f0f2f5);
@@ -934,7 +934,7 @@ onMounted(() => {
 }
 
 .ops-action:hover:not(:disabled) {
-  border-color: var(--tg-btn, #60a5fa);
+  border-color: var(--admin-accent-border, rgba(245, 158, 11, 0.38));
   transform: translateY(-1px);
 }
 
@@ -944,7 +944,8 @@ onMounted(() => {
 }
 
 .ops-action--maintenance {
-  background: rgba(59, 130, 246, 0.06);
+  background: var(--admin-accent-soft, rgba(245, 158, 11, 0.1));
+  border-color: var(--admin-accent-border, rgba(245, 158, 11, 0.28));
 }
 
 .ops-title {
@@ -954,13 +955,13 @@ onMounted(() => {
 
 .ops-desc {
   font-size: 12px;
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
   line-height: 1.45;
 }
 
 .maintenance-result {
   margin: 10px 0 0;
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
   font-size: 13px;
 }
 
@@ -973,7 +974,7 @@ onMounted(() => {
   margin: 6px 0 0;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .launch-check-badge {
@@ -1036,21 +1037,7 @@ onMounted(() => {
   margin-top: 12px;
 }
 
-.skeleton-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.skeleton-line {
-  height: 14px;
-  border-radius: 6px;
-  background: rgba(148, 163, 184, 0.14);
-}
-
-.skeleton-line.w-40 {
-  width: 40%;
-}
+/* skeleton-list / skeleton-line / w-40 → admin.css */
 
 .income-header {
   align-items: flex-start;
@@ -1060,7 +1047,7 @@ onMounted(() => {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
   font-size: 12px;
 }
 
@@ -1080,7 +1067,7 @@ onMounted(() => {
   align-items: center;
   gap: 14px;
   min-height: 44px;
-  border-bottom: 0.5px solid var(--border, rgba(148, 163, 184, 0.22));
+  border-bottom: 1px solid var(--border, rgba(148, 163, 184, 0.22));
 }
 
 .income-row:last-child {
@@ -1093,7 +1080,7 @@ onMounted(() => {
 }
 
 .income-date {
-  color: var(--tg-hint, #6b7280);
+  color: var(--tg-hint, #9aa4b2);
   font-size: 13px;
 }
 
@@ -1108,7 +1095,7 @@ onMounted(() => {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--tg-btn, #60a5fa);
+  background: var(--admin-accent, #f59e0b);
   transition: width 0.25s ease;
 }
 

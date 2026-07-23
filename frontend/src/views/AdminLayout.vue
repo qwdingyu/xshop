@@ -146,7 +146,8 @@ function handleLogout() {
 .admin-layout {
   display: flex;
   height: 100vh;
-  background: var(--tg-secondary-bg, #f5f7fa);
+  /* 整页底：用实色 token，勿用半透明 surface（会透出下层且分层发虚） */
+  background: var(--tg-bg, #0a0e17);
   overflow: hidden;
 }
 
@@ -199,7 +200,7 @@ function handleLogout() {
   background: rgba(255, 255, 255, 0.14);
   color: #fff;
   font-weight: 600;
-  border-left-color: #3b82f6;
+  border-left-color: var(--admin-accent, #f59e0b);
 }
 
 .nav-icon {
@@ -228,10 +229,9 @@ function handleLogout() {
   justify-content: space-between;
   gap: 10px;
   padding: 8px var(--admin-content-pad, 12px);
-  background: var(--tg-bg, #fff);
-  border-bottom: 0.5px solid var(--border, #e5e7eb);
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   backdrop-filter: saturate(180%) blur(12px);
-  background: rgba(var(--tg-bg-rgb, 255, 255, 255), 0.85);
+  background: rgba(var(--tg-bg-rgb, 10, 14, 23), 0.88);
 }
 
 .admin-header-title {
@@ -250,12 +250,12 @@ function handleLogout() {
   padding: 2px 6px;
   font-size: 11px;
   border-radius: var(--r-sm, 6px);
-  color: var(--tg-hint, #999);
+  color: var(--tg-hint, #9aa4b2);
 }
 
 .header-logout:hover {
-  color: var(--tg-text, #333);
-  background: var(--surface-hover, rgba(0,0,0,0.05));
+  color: var(--tg-text, #f0f2f5);
+  background: var(--surface-hover, rgba(255, 255, 255, 0.1));
 }
 
 /* ── Hamburger button ── */
@@ -275,14 +275,14 @@ function handleLogout() {
 }
 
 .btn-hamburger:hover {
-  background: var(--surface-hover, rgba(0,0,0,0.05));
+  background: var(--surface-hover, rgba(255, 255, 255, 0.1));
 }
 
 .hamburger-line {
   display: block;
   width: 100%;
   height: 1.5px;
-  background: var(--tg-text, #333);
+  background: var(--tg-text, #f0f2f5);
   border-radius: 1px;
   transition: transform var(--duration-fast, 0.15s) ease;
 }

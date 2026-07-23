@@ -37,12 +37,35 @@ if (packageJson.workspaces?.length !== 1 || packageJson.workspaces[0] !== "front
 }
 
 const delivery = String(packageJson.scripts?.["verify:delivery"] || "");
-for (const required of ["npm run verify:core", "npm run verify:architecture", "npm run verify:lightweight"]) {
+for (const required of [
+  "npm run verify:core",
+  "npm run verify:architecture",
+  "npm run verify:lightweight",
+  "npm run verify:admin-styles",
+]) {
   if (!delivery.includes(required)) fail(`verify:delivery must include ${required}`);
 }
 
 if (packageJson.scripts?.["verify:lightweight"] !== "node scripts/24-verify-lightweight-principles.mjs") {
   fail("package.json must expose verify:lightweight");
+}
+
+if (packageJson.scripts?.["verify:admin-styles"] !== "node scripts/27-verify-admin-styles.mjs") {
+  fail("package.json must expose verify:admin-styles (Admin shared CSS gate)");
+}
+
+// Admin 样式规约与门禁脚本必须存在，避免再次页面级 CSS 爆炸
+try {
+  const adminStyleGate = readFileSync("scripts/27-verify-admin-styles.mjs", "utf8");
+  if (!adminStyleGate.includes("admin.css") || !adminStyleGate.includes("weak blue")) {
+    fail("scripts/27-verify-admin-styles.mjs must guard admin.css import and weak blue");
+  }
+  const adminConvention = readFileSync("docs/049_Admin共享样式与开发约束规约_2026-07-23.md", "utf8");
+  if (!adminConvention.includes("强制规约") || !adminConvention.includes("admin.css")) {
+    fail("docs/049 must remain the binding Admin style convention");
+  }
+} catch (error) {
+  fail(`Admin style gate/convention missing: ${error instanceof Error ? error.message : String(error)}`);
 }
 
 const smokeEntrypoints = [

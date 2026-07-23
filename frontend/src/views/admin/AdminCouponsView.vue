@@ -625,28 +625,4 @@ onMounted(loadData)
 </script>
 
 <style>@import '@/assets/admin.css';</style>
-<style scoped>
-/* 页面专属样式放这里，只保留非通用样式 */
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.relation-cell {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 120px;
-}
-
-.relation-cell small {
-  color: var(--tg-hint, #6b7280);
-  font-size: 11px;
-}
-
-.generated-result { display: flex; flex-direction: column; gap: 10px; }
-.generated-result p { margin: 0; color: var(--tg-hint, #6b7280); font-size: 13px; }
-.generated-result textarea { width: 100%; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-</style>
+<!-- modal-actions / relation-cell / generated-result → admin.css -->
