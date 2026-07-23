@@ -69,6 +69,32 @@ if (!/option\s*\{[^}]*background-color:\s*var\(--tg-secondary-bg/s.test(baseCss)
   fail(`${baseCssPath} option must use opaque background-color for dark dropdown panels`);
 }
 
+// select / filters 垂直居中：固定高度时禁止上下 padding 挤爆行高
+const filtersControlBlock =
+  adminCss.match(
+    /\.filters input:not\(\[type='checkbox'\]\):not\(\[type='radio'\]\),\s*\n\.filters select\s*\{[\s\S]*?\n\}/,
+  )?.[0] || "";
+if (!filtersControlBlock) {
+  fail(`${adminCssPath} missing shared .filters input/select control block`);
+} else {
+  if (!/height:\s*34px/.test(filtersControlBlock)) {
+    fail(`${adminCssPath} .filters select/input must use height: 34px`);
+  }
+  if (!/line-height:\s*32px/.test(filtersControlBlock)) {
+    fail(`${adminCssPath} .filters select/input must use line-height: 32px for vertical centering`);
+  }
+  if (/padding:\s*8px/.test(filtersControlBlock)) {
+    fail(`${adminCssPath} .filters select/input must not use vertical padding: 8px (clips text)`);
+  }
+  if (!/padding:\s*0\s+10px/.test(filtersControlBlock) && !/padding:\s*0\s/.test(filtersControlBlock)) {
+    fail(`${adminCssPath} .filters select/input must use horizontal-only padding (padding: 0 …)`);
+  }
+}
+// 桌面 media 不得把 filters 改回 padding: 8px …
+if (/@media\s*\(min-width:\s*1024px\)[\s\S]{0,2500}?\.filters select[\s\S]{0,200}?padding:\s*8px/.test(adminCss)) {
+  fail(`${adminCssPath} ≥1024px media must not reintroduce filters padding: 8px (breaks select centering)`);
+}
+
 for (const primitive of [
   ".quick-chip",
   ".action-chip",

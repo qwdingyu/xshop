@@ -51,10 +51,17 @@
   min-width: 0;
 }
 
-/* 仅文本类控件；checkbox/radio 不能吃 height/min-width，否则会撑成大方块 */
+/*
+ * 工具栏文本控件（input / select）垂直居中铁律：
+ * - 固定 height: 34px（border-box）时，禁止再加上下 padding（8+8 会挤爆行高导致字被圆角裁切）
+ * - 只用左右 padding；line-height = 内容高度 32px（34 − 上下 border 各 1）
+ * - 覆盖 body 的 line-height: 1.6，否则中文底沿会被裁
+ */
 .filters input:not([type='checkbox']):not([type='radio']),
 .filters select {
-  padding: 8px 10px;
+  box-sizing: border-box;
+  height: 34px;
+  padding: 0 10px;
   border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-md, 8px);
   /* 不透明底：半透明 surface 在暗色下易导致 select 字色发灰、选中态异常 */
@@ -62,12 +69,13 @@
   color: var(--tg-text, #f0f2f5);
   -webkit-text-fill-color: var(--tg-text, #f0f2f5);
   font-size: 13px;
-  height: 34px;
+  line-height: 32px;
   width: auto;
   flex: 1 1 auto;
   min-width: 120px;
   max-width: 260px;
   color-scheme: dark;
+  vertical-align: middle;
 }
 
 /* 工具栏内筛选项勾选（如「仅余额 > 0」） */
@@ -126,7 +134,8 @@
 }
 
 .filters select {
-  padding-right: 32px;
+  /* 右侧留给箭头；上下 padding 必须保持 0（见上方铁律） */
+  padding: 0 32px 0 10px;
   appearance: none;
   -webkit-appearance: none;
   /* 与 background-color 拆开写，避免 background 简写冲掉箭头 */
@@ -439,7 +448,6 @@
 .modal-form input:not([type='checkbox']):not([type='radio']),
 .modal-form textarea,
 .modal-form select {
-  padding: 8px 10px;
   border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-md, 8px);
   background-color: var(--tg-secondary-bg, #151b28);
@@ -449,10 +457,24 @@
   color-scheme: dark;
 }
 
+.modal-form input:not([type='checkbox']):not([type='radio']),
+.modal-form select {
+  box-sizing: border-box;
+  height: 34px;
+  padding: 0 10px;
+  line-height: 32px;
+}
+
+.modal-form textarea {
+  padding: 8px 10px;
+  line-height: 1.45;
+  min-height: 72px;
+}
+
 .modal-form select {
   appearance: none;
   -webkit-appearance: none;
-  padding: 8px 32px 8px 10px;
+  padding: 0 32px 0 10px;
   background-color: var(--tg-secondary-bg, #151b28);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239aa4b2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -613,19 +635,14 @@
     gap: 10px;
   }
 
+  /* 禁止在此重写上下 padding / 放大字号；会再次裁切 select 文字 */
   .filters input:not([type='checkbox']):not([type='radio']),
   .filters select {
-    padding: 8px 12px;
-    font-size: 14px;
+    font-size: 13px;
   }
 
   .filters select {
-    padding-right: 32px;
-    appearance: none;
-    -webkit-appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239aa4b2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
+    padding: 0 32px 0 12px;
   }
 
   .table-wrap {
@@ -651,7 +668,11 @@
     font-size: 13px;
   }
 
-  .modal-form input:not([type='checkbox']):not([type='radio']),
+  .modal-form input:not([type='checkbox']):not([type='radio']) {
+    /* 保持 height + line-height 垂直居中，勿加上下 padding */
+    font-size: 13px;
+  }
+
   .modal-form textarea {
     padding: 8px 10px;
     font-size: 13px;

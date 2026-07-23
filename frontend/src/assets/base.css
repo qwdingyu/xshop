@@ -179,18 +179,27 @@ select {
   appearance: none;
   -webkit-appearance: none;
   color-scheme: dark;
+  box-sizing: border-box;
   border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-md, 8px);
   color: var(--tg-text, #f0f2f5);
   /* 强制填充色：部分 WebKit 在半透明底上会把 value 画成系统灰 */
   -webkit-text-fill-color: var(--tg-text, #f0f2f5);
-  padding: 8px 32px 8px 12px;
+  /*
+   * 垂直居中：勿用上下 padding + 继承 body line-height:1.6。
+   * Admin 工具栏在 admin.css 用 height:34px + line-height:32px 覆盖；
+   * 此处默认用适中 line-height，避免关闭态字被圆角裁切。
+   */
+  min-height: 34px;
+  padding: 0 32px 0 12px;
+  line-height: 32px;
   background-color: var(--tg-secondary-bg, #151b28);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239aa4b2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
   background-size: 12px;
   cursor: pointer;
+  vertical-align: middle;
 }
 
 select:disabled {
