@@ -21,7 +21,7 @@ usage() {
   check     逐项检查实施完成度（PASS/FAIL 矩阵）
   harden    加固公开 xshop（关 Actions、清 Secrets/Vars）
   export    脱敏导出到 /tmp/cf-shop-oss-export（不 push）
-  push      将最近 export 或指定目录 orphan force-push 到 xshop
+  push      将导出目录增量提交到 xshop（基于历史叠加新 commit）
   sync      export + push
   all       harden → check → sync → check
 

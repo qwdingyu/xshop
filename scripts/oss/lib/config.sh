@@ -5,7 +5,6 @@
 : "${XSHOP_BRANCH:=main}"
 : "${PRIVATE_BRANCH:=main}"
 : "${OSS_STRIP_SCHEDULE:=1}"
-: "${OSS_FORCE_PUSH:=1}"
 : "${OSS_EXCLUDE_PREFIXES:=docs/ packages/ .env .env.local scripts/oss/config.env}"
 
 # 公开仓不应存在的生产类 secret 名称（harden / check 共用）

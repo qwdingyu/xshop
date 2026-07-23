@@ -40,6 +40,5 @@ load_config() {
   PRIVATE_BRANCH="${PRIVATE_BRANCH:-main}"
   XSHOP_SLUG="${XSHOP_OWNER}/${XSHOP_REPO}"
   OSS_STRIP_SCHEDULE="${OSS_STRIP_SCHEDULE:-1}"
-  OSS_FORCE_PUSH="${OSS_FORCE_PUSH:-1}"
   OSS_EXCLUDE_PREFIXES="${OSS_EXCLUDE_PREFIXES:-docs/ packages/ .env .env.local scripts/oss/config.env}"
 }
