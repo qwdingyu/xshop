@@ -418,7 +418,7 @@ const checks = [
       files.orderView.includes("closed: '已关闭'") &&
       files.orderView.includes("refunded: '已退款'") &&
       files.orderView.includes("normalizeOrderStatus") &&
-      files.orderView.includes("TERMINAL_ORDER_STATUSES") &&
+      files.orderView.includes("TERMINAL_ORDER_STATUS_SET") &&
       files.adminOrdersView.includes("closed: '已关闭'") &&
       files.adminOrdersView.includes("refunded: '已退款'") &&
       files.adminOrdersView.includes("ABNORMAL_ORDER_STATUSES") &&
