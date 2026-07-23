@@ -43,8 +43,30 @@ for (const token of [
   "--admin-info:",
   "--admin-success:",
   "--admin-danger:",
+  "--admin-font-base:",
+  "--admin-font-sm:",
+  "--admin-cell-pad:",
 ]) {
   if (!baseCss.includes(token)) fail(`${baseCssPath} must define token ${token.trim()}`);
+}
+
+// 表格紧凑字号：禁止把 base 抬回 14px 行高过大
+if (!/--admin-font-base:\s*13px/.test(baseCss)) {
+  fail(`${baseCssPath} --admin-font-base must be 13px (compact admin tables)`);
+}
+if (!/--admin-font-sm:\s*11px/.test(baseCss)) {
+  fail(`${baseCssPath} --admin-font-sm must be 11px`);
+}
+
+// 暗色 select：必须 color-scheme dark + 不透明底（避免选中/列表字发灰）
+if (!/select\s*\{[^}]*color-scheme:\s*dark/s.test(baseCss)) {
+  fail(`${baseCssPath} select must set color-scheme: dark`);
+}
+if (!/select\s*\{[^}]*background-color:\s*var\(--tg-secondary-bg/s.test(baseCss)) {
+  fail(`${baseCssPath} select must use opaque background-color: var(--tg-secondary-bg)`);
+}
+if (!/option\s*\{[^}]*background-color:\s*var\(--tg-secondary-bg/s.test(baseCss)) {
+  fail(`${baseCssPath} option must use opaque background-color for dark dropdown panels`);
 }
 
 for (const primitive of [

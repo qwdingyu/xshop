@@ -149,6 +149,8 @@ function handleLogout() {
   /* 整页底：用实色 token，勿用半透明 surface（会透出下层且分层发虚） */
   background: var(--tg-bg, #0a0e17);
   overflow: hidden;
+  /* 原生 select/option 按暗色系统面板渲染，避免选中/列表字发灰看不清 */
+  color-scheme: dark;
 }
 
 .admin-sidebar {

@@ -57,14 +57,17 @@
   padding: 8px 10px;
   border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-md, 8px);
-  background: var(--surface, rgba(255, 255, 255, 0.04));
+  /* 不透明底：半透明 surface 在暗色下易导致 select 字色发灰、选中态异常 */
+  background-color: var(--tg-secondary-bg, #151b28);
   color: var(--tg-text, #f0f2f5);
-  font-size: 14px;
+  -webkit-text-fill-color: var(--tg-text, #f0f2f5);
+  font-size: 13px;
   height: 34px;
   width: auto;
   flex: 1 1 auto;
   min-width: 120px;
   max-width: 260px;
+  color-scheme: dark;
 }
 
 /* 工具栏内筛选项勾选（如「仅余额 > 0」） */
@@ -126,9 +129,25 @@
   padding-right: 32px;
   appearance: none;
   -webkit-appearance: none;
+  /* 与 background-color 拆开写，避免 background 简写冲掉箭头 */
+  background-color: var(--tg-secondary-bg, #151b28);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239aa4b2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
+  background-size: 12px;
+}
+
+/* 工具栏下拉：展开项与选中态（配合 base color-scheme: dark） */
+.filters select option,
+.modal-form select option {
+  background-color: var(--tg-secondary-bg, #151b28);
+  color: var(--tg-text, #f0f2f5);
+}
+
+.filters select option:checked,
+.modal-form select option:checked {
+  background-color: var(--admin-accent-soft, rgba(245, 158, 11, 0.28));
+  color: var(--tg-text, #f0f2f5);
 }
 
 .filters .btn {
@@ -180,19 +199,22 @@
   /* separate：sticky thead/th 在 Chrome/Safari/Firefox 行为一致；collapse 易透字/错层 */
   border-collapse: separate;
   border-spacing: 0;
-  font-size: var(--admin-font-base, 14px);
+  /* 主字号小一号、行高紧凑：token 在 base.css --admin-font-base / --admin-cell-pad */
+  font-size: var(--admin-font-base, 13px);
+  line-height: 1.35;
   table-layout: auto;
   color: var(--tg-text, #f0f2f5);
 }
 
 .admin-table th,
 .admin-table td {
-  padding: var(--admin-cell-pad, 8px 10px);
+  padding: var(--admin-cell-pad, 6px 8px);
   text-align: left;
   border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   white-space: normal;
   overflow-wrap: break-word;
   min-width: 50px;
+  line-height: 1.35;
 }
 
 /* 表体整体压在表头之下，避免单元格内定位元素盖住 sticky 表头 */
@@ -211,7 +233,7 @@
 .admin-table th {
   color: var(--tg-hint, #9aa4b2);
   font-weight: 600;
-  font-size: var(--admin-font-sm, 13px);
+  font-size: var(--admin-font-sm, 11px);
   /* 实色底：与滚动容器同色，保证上滑行内容无法透出 */
   background-color: var(--tg-secondary-bg, #151b28);
   /* 叠表面 tint（画在实色之上；合成结果仍不透明） */
@@ -420,18 +442,22 @@
   padding: 8px 10px;
   border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-md, 8px);
-  background: var(--surface, rgba(255, 255, 255, 0.04));
+  background-color: var(--tg-secondary-bg, #151b28);
   color: var(--tg-text, #f0f2f5);
+  -webkit-text-fill-color: var(--tg-text, #f0f2f5);
   font-size: 13px;
+  color-scheme: dark;
 }
 
 .modal-form select {
   appearance: none;
   -webkit-appearance: none;
   padding: 8px 32px 8px 10px;
+  background-color: var(--tg-secondary-bg, #151b28);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239aa4b2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
+  background-size: 12px;
 }
 
 .modal-form textarea {
@@ -608,7 +634,8 @@
 
   .admin-table th,
   .admin-table td {
-    padding: var(--admin-cell-pad, 10px 14px);
+    /* 沿用 token 紧凑 padding，勿在此写大一号硬编码 */
+    padding: var(--admin-cell-pad, 6px 10px);
   }
 
   .empty-text {

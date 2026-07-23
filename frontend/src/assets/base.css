@@ -75,12 +75,14 @@
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
 
-  /* ── 管理后台尺寸变量（在 @media 中覆盖） ── */
+  /* ── 管理后台尺寸变量（在 @media 中覆盖） ──
+   * 表格主字号 / 行高：偏紧凑（13 / 11 + 较小 cell pad），勿再把 base 抬回 14px。
+   */
   --admin-content-pad: 10px;
   --admin-card-pad: 10px;
-  --admin-cell-pad: 8px 10px;
-  --admin-font-base: 14px;
-  --admin-font-sm: 12px;
+  --admin-cell-pad: 6px 8px;
+  --admin-font-base: 13px;
+  --admin-font-sm: 11px;
 
   /* ── 前端页面尺寸变量（在 @media 中覆盖） ── */
   --content-pad: 16px;
@@ -95,7 +97,8 @@
   :root {
     --admin-content-pad: 12px;
     --admin-card-pad: 12px;
-    --admin-cell-pad: 8px 12px;
+    /* 表格保持紧凑，勿放大 cell pad */
+    --admin-cell-pad: 6px 10px;
 
     /* 前端页面 */
     --content-pad: 20px;
@@ -110,9 +113,9 @@
   :root {
     --admin-content-pad: 12px;
     --admin-card-pad: 12px;
-    --admin-cell-pad: 8px 12px;
-    --admin-font-base: 14px;
-    --admin-font-sm: 12px;
+    --admin-cell-pad: 6px 10px;
+    --admin-font-base: 13px;
+    --admin-font-sm: 11px;
 
     /* 前端页面 */
     --content-pad: 20px;
@@ -166,24 +169,46 @@ select {
   color: var(--tg-text, #f0f2f5);
 }
 
-/* ── 下拉框主题适配（fallback 与 :root 暗色 token 一致） ── */
+/*
+ * ── 下拉框主题适配 ──
+ * 暗色 UI 必须 color-scheme: dark，否则系统原生 option 面板按浅色渲染，
+ * 出现「选中项/列表项字色发灰、看不清、选中反白异常」。
+ * 关闭态控件使用不透明 background-color + 单独 background-image（勿用 background 简写冲掉箭头）。
+ */
 select {
   appearance: none;
   -webkit-appearance: none;
-  background: var(--tg-bg, #0a0e17);
+  color-scheme: dark;
   border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-md, 8px);
   color: var(--tg-text, #f0f2f5);
+  /* 强制填充色：部分 WebKit 在半透明底上会把 value 画成系统灰 */
+  -webkit-text-fill-color: var(--tg-text, #f0f2f5);
   padding: 8px 32px 8px 12px;
+  background-color: var(--tg-secondary-bg, #151b28);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239aa4b2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
+  background-size: 12px;
   cursor: pointer;
 }
 
-/* 下拉面板在深色主题下不可控，但至少保证控件本体与主题一致 */
+select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  -webkit-text-fill-color: var(--tg-hint, #9aa4b2);
+}
+
+/* 展开列表：实色底 + 主字色；checked 用 accent 软底（系统仍可能覆盖部分属性） */
 option {
-  background: var(--tg-secondary-bg, #151b28);
+  background-color: var(--tg-secondary-bg, #151b28);
+  color: var(--tg-text, #f0f2f5);
+}
+
+option:checked,
+option:focus,
+option:hover {
+  background-color: var(--admin-accent-soft, rgba(245, 158, 11, 0.22));
   color: var(--tg-text, #f0f2f5);
 }
 
