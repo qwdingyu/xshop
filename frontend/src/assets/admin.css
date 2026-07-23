@@ -145,7 +145,10 @@
   flex-shrink: 0;
 }
 
-/* ── 表格容器 ── */
+/* ── 表格容器 ──
+ * 滚动裁剪发生在这里（overflow: auto）。sticky 表头相对 .table-wrap 吸顶。
+ * 禁止在页面 scoped 再写一套 table-wrap / th sticky。
+ */
 .table-wrap {
   background: var(--tg-secondary-bg, #151b28);
   border-radius: var(--r-lg, 12px);
@@ -155,12 +158,28 @@
   scrollbar-gutter: stable;
   flex: 1;
   min-height: 0;
+  /* 建立独立层叠上下文，避免表头与外部 sticky toolbar 抢 z-index */
+  isolation: isolate;
 }
 
-/* ── 表格 ── */
+/* ── 表格 ──
+ *
+ * 【强制】sticky 表头不得透出滚动中的 tbody 文字（线上曾出现表头与行内容叠字）。
+ * 根因与禁令（必须同时满足，缺一就会复发）：
+ * 1. 表头背景必须「实色不透明」：禁止仅用 --surface-2 / rgba(255,255,255,0.07)
+ *    等半透明底；半透明会让上滑行内容从 th 底下透出来。
+ * 2. z-index 必须明显高于 tbody（含行内 .btn / .tag）：至少 5；tbody 锁在 0。
+ * 3. 使用 border-collapse: separate + border-spacing: 0（collapse 模式下部分
+ *    浏览器 sticky 边框/层叠异常，表头会被盖住或闪烁）。
+ * 4. 新 Admin 表格只许用 .table-wrap > .admin-table，禁止页内重写 th 背景为透明。
+ * 门禁：scripts/27-verify-admin-styles.mjs 会扫描半透明 th 与缺失 sticky/z-index。
+ * 规约：docs/049_Admin共享样式与开发约束规约_2026-07-23.md
+ */
 .admin-table {
   width: 100%;
-  border-collapse: collapse;
+  /* separate：sticky thead/th 在 Chrome/Safari/Firefox 行为一致；collapse 易透字/错层 */
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: var(--admin-font-base, 14px);
   table-layout: auto;
   color: var(--tg-text, #f0f2f5);
@@ -176,14 +195,37 @@
   min-width: 50px;
 }
 
+/* 表体整体压在表头之下，避免单元格内定位元素盖住 sticky 表头 */
+.admin-table tbody {
+  position: relative;
+  z-index: 0;
+}
+
+/*
+ * sticky 表头：唯一权威实现。
+ * background-color = 与 .table-wrap 相同的不透明底；
+ * background-image = 再叠一层 surface 色调（视觉仍偏「表头略亮」），但整体不透明。
+ * 禁止改回：background: var(--surface-2) 或任意 alpha < 1 的单层背景。
+ */
+.admin-table thead th,
 .admin-table th {
   color: var(--tg-hint, #9aa4b2);
   font-weight: 600;
   font-size: var(--admin-font-sm, 13px);
-  background: var(--surface-2, rgba(255, 255, 255, 0.07));
+  /* 实色底：与滚动容器同色，保证上滑行内容无法透出 */
+  background-color: var(--tg-secondary-bg, #151b28);
+  /* 叠表面 tint（画在实色之上；合成结果仍不透明） */
+  background-image: linear-gradient(
+    var(--surface-2, rgba(255, 255, 255, 0.07)),
+    var(--surface-2, rgba(255, 255, 255, 0.07))
+  );
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 5;
+  /* 滚动时与正文的分界（不依赖 border-collapse 画线） */
+  box-shadow: inset 0 -1px 0 var(--border, rgba(255, 255, 255, 0.1));
+  /* 防止子节点创建异常层叠 */
+  vertical-align: middle;
 }
 
 .admin-table tbody tr:hover {
@@ -192,6 +234,12 @@
 
 .admin-table tbody tr {
   transition: background-color 0.12s ease;
+}
+
+/* 单元格内交互控件不得抬到表头之上 */
+.admin-table tbody td {
+  position: relative;
+  z-index: 0;
 }
 
 /* 选中行：琥珀体系（禁止 rgba(96,165,250) 等弱蓝） */

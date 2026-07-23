@@ -86,6 +86,53 @@ for (const re of weakBlueInAdminCss) {
   if (re.test(adminCssCodeOnly)) fail(`${adminCssPath} must not use weak blue for info/selection: ${re}`);
 }
 
+// ── sticky 表头防透字（批量共性，禁止回归）────────────────────────
+// 见 admin.css 表格段注释与 docs/049 §3.1
+if (!adminCss.includes("border-collapse: separate")) {
+  fail(`${adminCssPath} .admin-table must use border-collapse: separate for sticky header stacking`);
+}
+if (!/\.table-wrap\s*\{[^}]*isolation:\s*isolate/s.test(adminCss)) {
+  fail(`${adminCssPath} .table-wrap must set isolation: isolate`);
+}
+
+// 合并 thead th + th 的权威规则块（紧跟「sticky 表头」注释之后的那一段）
+const stickyMarker = adminCss.indexOf("sticky 表头：唯一权威实现");
+const stickyWindow =
+  stickyMarker >= 0
+    ? adminCss.slice(stickyMarker, stickyMarker + 900)
+    : adminCss.match(/\.admin-table\s+thead\s+th[\s\S]{0,50}\.admin-table\s+th\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+if (!stickyWindow) {
+  fail(`${adminCssPath} missing sticky header rule block (comment marker or .admin-table thead th)`);
+} else {
+  if (!/position:\s*sticky/.test(stickyWindow)) {
+    fail(`${adminCssPath} sticky th must set position: sticky`);
+  }
+  if (!/top:\s*0/.test(stickyWindow)) {
+    fail(`${adminCssPath} sticky th must set top: 0`);
+  }
+  if (!/background-color:\s*var\(--tg-secondary-bg/.test(stickyWindow)) {
+    fail(`${adminCssPath} sticky th must set opaque background-color: var(--tg-secondary-bg)`);
+  }
+  const z = stickyWindow.match(/z-index:\s*(\d+)/);
+  if (!z || Number(z[1]) < 5) {
+    fail(`${adminCssPath} sticky th must use z-index >= 5 (got ${z ? z[1] : "missing"})`);
+  }
+  // 禁止「只有半透明 background:」且没有 background-color 实色
+  if (/background:\s*var\(--surface-2/.test(stickyWindow) && !/background-color:/.test(stickyWindow)) {
+    fail(`${adminCssPath} sticky th must not use surface-2-only semi-transparent background`);
+  }
+}
+
+// 历史回归指纹：整文件不得再出现「th 上仅 surface-2 半透明 + sticky + z-index:1」旧模式
+if (
+  /\.admin-table\s+th\s*\{[^}]*background:\s*var\(--surface-2[^}]*position:\s*sticky[^}]*z-index:\s*1/s.test(
+    adminCss,
+  )
+) {
+  fail(`${adminCssPath} legacy semi-transparent sticky th (z-index:1) must not return`);
+}
+
 // 每个 Admin 业务页必须 import admin.css
 for (const file of adminViews) {
   const src = readFileSync(file, "utf8");
@@ -112,6 +159,8 @@ for (const file of adminViews) {
       { re: /^\.status-banner-success\s*\{/m, name: ".status-banner-success" },
       { re: /^\.dir-btn\s*\{/m, name: ".dir-btn" },
       { re: /^\.stat-item\s*\{/m, name: ".stat-item" },
+      { re: /^\.admin-table\s+th\s*\{/m, name: ".admin-table th (use admin.css sticky header)" },
+      { re: /^\.table-wrap\s*\{/m, name: ".table-wrap" },
     ];
     for (const item of bannedFullBlocks) {
       if (item.re.test(body)) fail(`${file} scoped CSS redefines shared primitive ${item.name}; hoist to admin.css`);
@@ -120,6 +169,11 @@ for (const file of adminViews) {
     // 弱蓝 info 字色
     if (/#93c5fd|#1d4ed8|rgba\(\s*96\s*,\s*165\s*,\s*250/i.test(body)) {
       fail(`${file} scoped CSS uses weak blue; use --admin-accent* / --admin-info* tokens`);
+    }
+
+    // 禁止页内把表头改成半透明或 transparent（会再次透字）
+    if (/\.admin-table[^\n]*th[^{]*\{[^}]*(?:background(?:-color)?\s*:\s*(?:transparent|var\(--surface)|opacity\s*:\s*0\.)/i.test(body)) {
+      fail(`${file} must not override sticky th with transparent/semi-transparent background`);
     }
   }
 }
