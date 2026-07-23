@@ -141,6 +141,15 @@
               <span>排序</span>
               <input v-model.number="row.sortOrder" type="number" min="0" max="99999" step="1" :disabled="!row.selected" />
             </label>
+            <button
+              class="btn btn-ghost btn-xs"
+              type="button"
+              title="复制该渠道下的用户购买链接"
+              :disabled="!row.selected || !row.visible || !currentStorefront?.active"
+              @click="copyProductBuyLink(row)"
+            >
+              购买链接
+            </button>
           </div>
           <div v-if="filteredProductRows.length === 0" class="empty-text">没有匹配商品</div>
         </div>
@@ -178,6 +187,7 @@ import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormat'
 import { writeClipboardText } from '@/composables/useClipboard'
+import { buildStorefrontProductBuyUrl, productLinkKey } from '@/lib/storefront-product-link'
 
 type MappingRow = {
   product: AdminProduct
@@ -407,6 +417,31 @@ async function copyUrl(item: AdminStorefront) {
     showToast('渠道 URL 已复制', 'success')
   } catch {
     showToast('复制失败', 'error')
+  }
+}
+
+/** 当前渠道内单商品购买链接；未选/不可见/渠道停用时拒绝，禁止改道其他渠道。 */
+async function copyProductBuyLink(row: MappingRow) {
+  const channel = currentStorefront.value
+  if (!channel) return
+  if (!row.selected || !row.visible) {
+    showToast('仅可为已选且可见的商品复制购买链接', 'error')
+    return
+  }
+  if (!channel.active) {
+    showToast('该渠道已停用，无法生成用户购买链接', 'error')
+    return
+  }
+  try {
+    const url = buildStorefrontProductBuyUrl(
+      window.location.origin,
+      channel.homePath,
+      productLinkKey(row.product),
+    )
+    await writeClipboardText(url)
+    showToast('购买链接已复制', 'success')
+  } catch {
+    showToast('复制购买链接失败', 'error')
   }
 }
 

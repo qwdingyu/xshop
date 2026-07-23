@@ -22,6 +22,8 @@ export interface DailyIncome {
 
 export interface AdminProduct {
   id: string
+  /** 与库内 products.slug 对齐；复制用户购买链接时优先使用 */
+  slug?: string
   title: string
   description?: string
   priceCents: number

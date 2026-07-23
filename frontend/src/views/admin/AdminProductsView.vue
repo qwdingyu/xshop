@@ -174,6 +174,14 @@
                 <button class="btn btn-ghost btn-xs" title="复制为新商品" :disabled="saving || loading || batchOperating || duplicatingId === item.id" @click="duplicateProductRow(item)">
                   {{ duplicatingId === item.id ? '复制中…' : '复制' }}
                 </button>
+                <button
+                  class="btn btn-ghost btn-xs"
+                  title="复制用户侧购买链接（渠道内单商品深链）"
+                  :disabled="saving || loading || batchOperating"
+                  @click="copyProductBuyLink(item)"
+                >
+                  购买链接
+                </button>
                 <button class="btn btn-ghost btn-xs" :disabled="saving || loading || batchOperating || deletingId === item.id" @click="openDialog(item)">编辑</button>
                 <button class="btn btn-ghost btn-xs" :title="filter.storefrontId ? '管理当前渠道排序' : '选择渠道后管理排序'" :disabled="loading || batchOperating" @click="goStorefrontSort(item)">
                   排序
@@ -445,6 +453,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import { writeClipboardText } from '@/composables/useClipboard'
 import { downloadCsv } from '@/lib/csv-export'
+import { buildStorefrontProductBuyUrl, productLinkKey } from '@/lib/storefront-product-link'
 import {
   CURRENCY_CODES,
   formatMoney,
@@ -661,6 +670,59 @@ function storefrontName(id: string) {
 function productStorefronts(item: AdminProduct): NonNullable<AdminProduct['storefronts']> {
   if (item.storefronts?.length) return item.storefronts
   return (item.storefrontIds || []).map(id => ({ id, name: storefrontName(id), visible: true, sortOrder: undefined }))
+}
+
+/** 仅「已分配且可见」的渠道可用于用户购买链接；禁止静默改道到其他渠道。 */
+function visibleProductStorefronts(item: AdminProduct) {
+  return productStorefronts(item).filter(storefront => storefront.visible !== false)
+}
+
+/**
+ * 解析复制购买链接用的渠道：
+ * - 已筛选渠道：必须在该渠道可见，否则拒绝
+ * - 未筛选：仅当恰好一个可见渠道时可用；多个则要求先筛选
+ */
+function resolveBuyLinkStorefront(item: AdminProduct): AdminStorefront | null {
+  const visible = visibleProductStorefronts(item)
+  if (filter.storefrontId) {
+    if (!visible.some(entry => entry.id === filter.storefrontId)) return null
+    return storefronts.value.find(entry => entry.id === filter.storefrontId) || null
+  }
+  if (visible.length !== 1) return null
+  return storefronts.value.find(entry => entry.id === visible[0].id) || null
+}
+
+async function copyProductBuyLink(item: AdminProduct) {
+  const visible = visibleProductStorefronts(item)
+  if (visible.length === 0) {
+    showToast('该商品未挂到任何可见渠道，请先在「展示渠道」中配置', 'error')
+    return
+  }
+  const target = resolveBuyLinkStorefront(item)
+  if (!target) {
+    showToast(
+      filter.storefrontId
+        ? '当前筛选渠道下该商品不可见，请更换渠道或调整映射后再复制'
+        : '该商品挂在多个渠道，请先在上方筛选目标渠道再复制购买链接',
+      'error',
+    )
+    return
+  }
+  if (!target.active) {
+    showToast('该渠道已停用，无法生成用户购买链接', 'error')
+    return
+  }
+  try {
+    const url = buildStorefrontProductBuyUrl(
+      window.location.origin,
+      target.homePath,
+      productLinkKey(item),
+    )
+    await writeClipboardText(url)
+    showToast(`已复制购买链接（${target.name}）`, 'success')
+  } catch {
+    showToast('复制购买链接失败', 'error')
+  }
 }
 
 function currentStorefrontMapping(item: AdminProduct) {

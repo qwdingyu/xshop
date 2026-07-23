@@ -29,6 +29,8 @@ export interface Storefront {
 
 export interface Product {
   id: string
+  /** 公开展示用键；购买深链优先使用 slug，兼容 id */
+  slug?: string
   title: string
   name?: string
   priceCents: number

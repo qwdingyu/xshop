@@ -123,6 +123,10 @@ import { usePayment } from '@/composables/usePayment'
 import { useShopConfig } from '@/composables/useShopConfig'
 import { useToast } from '@/composables/useToast'
 import { productIsSoldOut } from '@/lib/storefront-stock'
+import {
+  parseProductDeeplinkQuery,
+  stripProductDeeplinkQuery,
+} from '@/lib/storefront-product-link'
 import type { Product, ProductCategory } from '@/types'
 import { useRecharge } from '@/composables/useRecharge'
 import { useStorefrontContext } from '@/composables/useStorefrontContext'
@@ -141,6 +145,8 @@ const { supportEmail, balanceRechargeEnabled, loadShopConfig } = useShopConfig()
 const { isTelegram, isMobile } = usePlatform()
 const { storefront, setStorefront, clearStorefront } = useStorefrontContext()
 const { openRecharge } = useRecharge()
+const { open } = usePayment()
+const { showToast } = useToast()
 const storefrontSupportEmail = computed(() => storefront.value?.supportEmail || supportEmail.value)
 const storefrontTemplate = computed(() => storefront.value?.templateKey || 'catalog')
 const showInlineRecharge = computed(() => balanceRechargeEnabled.value && isTelegram.value && isMobile.value)
@@ -149,6 +155,8 @@ const requestedStorefrontSlug = computed(() => {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 })
 let catalogRequestSequence = 0
+/** 深链打开序号：并发 loadData / query 变化时只允许最后一次打开，避免连环弹窗 */
+let deeplinkRequestSequence = 0
 
 const categories = computed(() => {
   if (catalogCategories.value.length > 0) return catalogCategories.value
@@ -200,6 +208,8 @@ async function loadData() {
   const requestSequence = ++catalogRequestSequence
   const storefrontSlug = requestedStorefrontSlug.value
   const requestedRoutePath = route.path
+  // 纠正 homePath 时必须保留推广 query（含 product），禁止丢参。
+  const requestedQuery = { ...route.query }
   loading.value = true
   error.value = ''
   clearStorefront()
@@ -210,7 +220,7 @@ async function loadData() {
     if (requestedRoutePath !== catalog.storefront.homePath) {
       await router.replace({
         path: catalog.storefront.homePath,
-        query: route.query,
+        query: requestedQuery,
         hash: route.hash,
       })
       return
@@ -218,6 +228,8 @@ async function loadData() {
     setStorefront(catalog.storefront)
     products.value = catalog.products
     catalogCategories.value = catalog.categories
+    // 目录就绪后尝试消费 ?product= 深链（失败不跳转其他渠道）。
+    void tryOpenProductDeeplink(catalog.storefront.id, catalog.storefront.slug)
   } catch (err: any) {
     if (requestSequence !== catalogRequestSequence || route.path !== requestedRoutePath) return
     products.value = []
@@ -225,6 +237,46 @@ async function loadData() {
     error.value = err.message || '加载商品失败'
   } finally {
     if (requestSequence === catalogRequestSequence) loading.value = false
+  }
+}
+
+/** 去掉 URL 上的 product 参数，避免刷新重复自动开单；保留其余 query。 */
+async function scrubProductDeeplinkQuery() {
+  if (!parseProductDeeplinkQuery(route.query as Record<string, unknown>)) return
+  const nextQuery = stripProductDeeplinkQuery(route.query as Record<string, unknown>)
+  await router.replace({
+    path: route.path,
+    query: nextQuery as typeof route.query,
+    hash: route.hash,
+  })
+}
+
+/**
+ * 渠道内单商品深链：仅当当前渠道上下文已就绪时打开现有 PayModal。
+ * - 不跳转其他渠道
+ * - 并发时只保留最后一次意图；成功/失败后 scrub query，避免刷新连环弹
+ * - 走 handlePay，与点击卡片同一支付路径（不再另起收银台）
+ */
+async function tryOpenProductDeeplink(storefrontId: string, storefrontSlug: string) {
+  const productKey = parseProductDeeplinkQuery(route.query as Record<string, unknown>)
+  if (!productKey) return
+
+  const requestSequence = ++deeplinkRequestSequence
+
+  try {
+    const latest = await fetchProductDetail(productKey, storefrontSlug)
+    if (requestSequence !== deeplinkRequestSequence) return
+    if (storefront.value?.id !== storefrontId) return
+    upsertProduct(latest)
+    await handlePay(latest)
+  } catch (err: any) {
+    if (requestSequence !== deeplinkRequestSequence) return
+    if (storefront.value?.id !== storefrontId) return
+    showToast(err?.message || '商品在当前渠道不可售或已下架', 'error')
+  } finally {
+    if (requestSequence === deeplinkRequestSequence) {
+      await scrubProductDeeplinkQuery()
+    }
   }
 }
 
@@ -243,9 +295,6 @@ async function refreshShopConfig() {
 function refreshConfigWhenVisible() {
   if (document.visibilityState === 'visible') void refreshShopConfig()
 }
-
-const { open } = usePayment()
-const { showToast } = useToast()
 
 function upsertProduct(nextProduct: Product) {
   const index = products.value.findIndex(product => product.id === nextProduct.id)
@@ -327,6 +376,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   catalogRequestSequence += 1
+  deeplinkRequestSequence += 1
   window.removeEventListener('payment:closed', refreshAfterPaymentClose)
   window.removeEventListener('products:refresh', refreshAfterPaymentClose)
   document.removeEventListener('visibilitychange', refreshConfigWhenVisible)
@@ -339,6 +389,15 @@ watch(requestedStorefrontSlug, () => {
   catalogCategories.value = []
   void loadData()
 }, { immediate: true })
+
+// 已在渠道页时再次进入 ?product=（同会话二次点击推广链）也要打开；scrub 清空时 key 为 null 直接忽略。
+watch(
+  () => parseProductDeeplinkQuery(route.query as Record<string, unknown>),
+  (productKey) => {
+    if (!productKey || loading.value || !storefront.value) return
+    void tryOpenProductDeeplink(storefront.value.id, storefront.value.slug)
+  },
+)
 </script>
 
 <style scoped>
