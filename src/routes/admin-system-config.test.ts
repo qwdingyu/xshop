@@ -16,6 +16,7 @@ vi.mock("../services/admin-service", () => ({
   clearBusinessDataPreservingConfig: (...args: unknown[]) => clearBusinessDataPreservingConfig(...args),
   CLEAR_BUSINESS_DATA_CONFIRMATIONS: {
     runtime: "清除运行态与日志",
+    keep_trade: "清除账本营销保留交易",
     keep_catalog: "清除交易数据保留商品",
     full: "清除所有业务数据",
   },
@@ -238,6 +239,11 @@ describe("adminSystemConfigRoute", () => {
     });
     expect(rejectedPhrase.status).toBe(400);
     expect(clearBusinessDataPreservingConfig).not.toHaveBeenCalled();
+    const rejectedBody = await rejectedPhrase.json() as { error?: string; message?: string };
+    const rejectedText = JSON.stringify(rejectedBody);
+    // 错误响应不得回显正确确认短语
+    expect(rejectedText).not.toContain("清除所有业务数据");
+    expect(rejectedText).toMatch(/不匹配/);
 
     const mismatched = await createApp().app.request("/clear-business-data", {
       method: "POST",
@@ -250,6 +256,8 @@ describe("adminSystemConfigRoute", () => {
     });
     expect(mismatched.status).toBe(400);
     expect(clearBusinessDataPreservingConfig).not.toHaveBeenCalled();
+    const mismatchedBody = await mismatched.json() as Record<string, unknown>;
+    expect(JSON.stringify(mismatchedBody)).not.toContain("清除交易数据保留商品");
 
     const acceptedFull = await createApp().app.request("/clear-business-data", {
       method: "POST",
@@ -301,5 +309,30 @@ describe("adminSystemConfigRoute", () => {
     });
     expect(missingPreserveFlag.status).toBe(400);
     expect(clearBusinessDataPreservingConfig).not.toHaveBeenCalled();
+
+    clearBusinessDataPreservingConfig.mockClear();
+    clearBusinessDataPreservingConfig.mockResolvedValueOnce({
+      deleted: 8,
+      tables: { user_balances: 1 },
+      reservedTables: ["system_config", "products", "orders", "cards"],
+      retainedAuditId: "audit-keep-trade",
+      profile: "keep_trade",
+      cardStrategy: "none",
+    });
+    const acceptedKeepTrade = await createApp().app.request("/clear-business-data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        profile: "keep_trade",
+        confirmation: "清除账本营销保留交易",
+        preserveConfigAndSystemParams: true,
+      }),
+    });
+    expect(acceptedKeepTrade.status).toBe(200);
+    expect(clearBusinessDataPreservingConfig).toHaveBeenCalledWith(
+      expect.anything(),
+      "ip-hash",
+      { profile: "keep_trade" },
+    );
   });
 });

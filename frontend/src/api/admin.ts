@@ -743,7 +743,7 @@ export function clearAllAdminLogs(token: string): Promise<{
   })
 }
 
-export type AdminClearBusinessDataProfile = 'runtime' | 'keep_catalog' | 'full'
+export type AdminClearBusinessDataProfile = 'runtime' | 'keep_trade' | 'keep_catalog' | 'full'
 
 export interface AdminClearBusinessDataResult {
   deleted: number

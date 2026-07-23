@@ -100,8 +100,8 @@
             <div>
               <h3 id="data-maintenance-title">数据维护</h3>
               <p>
-                固定三档清理（禁止自由拼表）。系统配置、支付配置、分类、API Key、迁移记录始终保留，并写回本次清理凭证。
-                清交易时卡密策略固定为「清空全部卡密」，不会留下已发卡密指向已删订单。
+                固定四档清理（禁止自由拼表）。系统配置、支付配置、分类、API Key、迁移记录始终保留，并写回本次清理凭证。
+                清订单时卡密策略固定为「清空全部卡密」，不会留下已发卡密指向已删订单。
               </p>
             </div>
           </div>
@@ -144,12 +144,12 @@
       </template>
     </div>
 
-    <ConfirmDialog v-model="confirmVisible" :message="confirmMessage" @confirm="onConfirm" />
+    <ConfirmDialog v-model="confirmVisible" :message="confirmMessage" danger @confirm="onConfirm" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { clearAdminBusinessData, fetchAdminSystemConfig, testAdminEmail, updateAdminSystemConfig } from '@/api/admin'
 import type { AdminClearBusinessDataProfile } from '@/api/admin'
 import type { AdminSystemConfigResult, AdminSystemConfigDefinition } from '@/types/admin'
@@ -184,6 +184,14 @@ const clearProfiles = [
     buttonLabel: '清除运行态与日志',
   },
   {
+    id: 'keep_trade' as const,
+    title: '清账本与营销（保留交易）',
+    summary: '清余额账本、充值单、优惠券/活动/推广、日志与运行态；保留商品、渠道、卡密、订单。',
+    detail: '适合清测试余额与营销脏数据，同时保留完整订单与库存。不碰卡密与订单，卡密策略为 none。注意：余额账本清空后，历史订单金额无法与账本逐笔对平——这不是对账修复工具。',
+    confirmation: '清除账本营销保留交易',
+    buttonLabel: '清除账本与营销',
+  },
+  {
     id: 'keep_catalog' as const,
     title: '清交易（保留商品与渠道）',
     summary: '清订单、全部卡密、余额账本、营销、日志与运行态；保留商品目录与展示渠道。',
@@ -201,10 +209,16 @@ const clearProfiles = [
   },
 ] as const
 
-const clearProfile = ref<AdminClearBusinessDataProfile>('keep_catalog')
+const clearProfile = ref<AdminClearBusinessDataProfile>('keep_trade')
 const clearBusinessConfirmText = ref('')
 const clearBusinessDataStatus = ref('')
 const clearingBusinessData = ref(false)
+
+// 切换档位时清空已输入短语，避免用上一档短语误触高危档位（服务端仍会校验，此处减少误操作）。
+watch(clearProfile, () => {
+  clearBusinessConfirmText.value = ''
+  clearBusinessDataStatus.value = ''
+})
 const emailConfigKeys = ['resend_api_key', 'email_from']
 const primaryConfigKeys = [
   'shop_name',
@@ -251,9 +265,12 @@ const emailTestHelp = computed(() =>
     ? '邮件配置正在保存，保存完成后再测试。'
     : '测试使用当前已保存的 Resend API Key 和发件人。',
 )
-const activeClearProfile = computed(() =>
-  clearProfiles.find((item) => item.id === clearProfile.value) || clearProfiles[1],
-)
+const activeClearProfile = computed(() => {
+  const matched = clearProfiles.find((item) => item.id === clearProfile.value)
+  if (matched) return matched
+  // 未知档位回退到默认 keep_trade（与 clearProfile 初始值一致），禁止静默落到高危档。
+  return clearProfiles.find((item) => item.id === 'keep_trade') || clearProfiles[0]
+})
 const canClearBusinessData = computed(() =>
   !clearingBusinessData.value
     && clearBusinessConfirmText.value.trim() === activeClearProfile.value.confirmation,

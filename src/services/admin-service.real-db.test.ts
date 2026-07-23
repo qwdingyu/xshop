@@ -4,18 +4,45 @@ import { createDb } from "../db/client";
 import { MIGRATION_FILES } from "../db/migration-files";
 import { batchDeleteOrders, cancelOrder, clearAllMergedLogs, clearBusinessDataPreservingConfig, countProviderOrdersRequiringCredentials, exportOrders, getAdminSummary, getDailyIncomeTrend, getEmailLogList, getMergedLogs, getOrderDetail, getOrderList, recordPaidOrderFulfillmentProgress } from "./admin-service";
 
-const openClearClients: Client[] = [];
+type IsolatedClientHandle = { client: Client; path: string };
 
-afterEach(() => {
+const openClearClients: IsolatedClientHandle[] = [];
+
+async function unlinkQuiet(path: string): Promise<void> {
+  // vitest 跑在 Node；动态 import 避免 Workers tsconfig 静态解析 node:fs
+  try {
+    // @ts-expect-error Node-only module in Workers-typed package; tests execute under Node/vitest
+    const fs = await import("node:fs");
+    for (const candidate of [path, `${path}-wal`, `${path}-shm`]) {
+      try {
+        fs.unlinkSync(candidate);
+      } catch {
+        // ignore missing files
+      }
+    }
+  } catch {
+    // non-Node or import failed — leave file for OS temp cleanup
+  }
+}
+
+afterEach(async () => {
   while (openClearClients.length > 0) {
-    openClearClients.pop()?.close();
+    const handle = openClearClients.pop();
+    if (!handle) break;
+    try {
+      handle.client.close();
+    } catch {
+      // already closed
+    }
+    await unlinkQuiet(handle.path);
   }
 });
 
-/** 独立文件库，避免 file::memory 在事务连接上丢表，也不引入 node:fs（Workers tsconfig 无 Node types）。 */
+/** 独立文件库，避免 file::memory 在事务连接上丢表。路径记入 handle 以便 afterEach 删除。 */
 function createIsolatedClient(): Client {
-  const client = createClient({ url: `file:/tmp/cf-shop-admin-clear-${crypto.randomUUID()}.db` });
-  openClearClients.push(client);
+  const path = `/tmp/cf-shop-admin-clear-${crypto.randomUUID()}.db`;
+  const client = createClient({ url: `file:${path}` });
+  openClearClients.push({ client, path });
   return client;
 }
 
@@ -421,12 +448,104 @@ describe("admin-service - real libSQL order snapshots", () => {
       expect(Number((await client.execute("SELECT COUNT(*) AS c FROM admin_audit_logs")).rows[0]?.c || 0)).toBe(1);
       expect(result.tables.products).toBeUndefined();
       expect(result.tables.orders).toBeUndefined();
+      // reserved 声明须覆盖实际保留面（审计/前端展示用，非 DELETE 白名单驱动）
+      expect(result.reservedTables).toEqual(expect.arrayContaining([
+        "orders",
+        "order_items",
+        "cards",
+        "card_batches",
+        "user_balances",
+        "balance_transactions",
+        "coupons",
+        "campaigns",
+      ]));
+      expect(result.reservedTables).not.toContain("request_logs");
     } finally {
       await client.execute("DELETE FROM admin_audit_logs").catch(() => undefined);
       client.close();
     }
   });
 
+  it("keep_trade clears wallet and marketing but keeps orders cards products", async () => {
+    const client = createIsolatedClient();
+    try {
+      await applyMigration(client, "0001");
+      await applyMigration(client, "0002");
+      await applyMigration(client, "0006");
+      await applyMigration(client, "0009");
+      await applyMigration(client, "0011");
+
+      const now = "2026-07-18T00:00:00.000Z";
+      await client.batch([
+        {
+          sql: "INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+          args: ["shop_name", "保留店铺", now],
+        },
+        { sql: "INSERT INTO products (id, slug, title, fulfillment_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["prod-trade", "prod-trade", "商品", "card", now, now] },
+        { sql: "INSERT INTO storefronts (id, slug, name, active, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["sf-trade", "sf-trade", "副店", 1, 0, now, now] },
+        { sql: "INSERT INTO storefront_products (storefront_id, product_id, visible, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["sf-trade", "prod-trade", 1, 1, now, now] },
+        { sql: "INSERT INTO card_batches (id, product_id, name, total_count, created_at) VALUES (?, ?, ?, ?, ?)", args: ["batch-trade", "prod-trade", "批次", 1, now] },
+        { sql: "INSERT INTO cards (id, product_id, batch_id, account_label, delivery_secret, status, issued_order_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", args: ["card-trade", "prod-trade", "batch-trade", "账号", "secret-trade", "issued", "order-trade", now] },
+        { sql: "INSERT INTO orders (id, order_no, product_id, buyer_contact, buyer_email, amount_cents, status, fulfillment_mode, payment_provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", args: ["order-trade", "NO-TRADE", "prod-trade", "buyer@example.com", "buyer@example.com", 100, "issued", "card", "easypay", now] },
+        { sql: "INSERT INTO order_items (id, order_id, product_id, product_title, created_at) VALUES (?, ?, ?, ?, ?)", args: ["item-trade", "order-trade", "prod-trade", "商品", now] },
+        { sql: "INSERT INTO order_events (id, order_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)", args: ["event-trade", "order-trade", "created", "created", now] },
+        { sql: "INSERT INTO card_logs (id, card_id, order_id, action, operator, created_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["card-log-trade", "card-trade", "order-trade", "issue", "admin", now] },
+        { sql: "INSERT INTO user_balances (email, balance_cents, total_deposited_cents, total_spent_cents, updated_at) VALUES (?, ?, ?, ?, ?)", args: ["trade@example.com", 100, 100, 0, now] },
+        { sql: "INSERT INTO balance_transactions (id, email, type, amount_cents, balance_after_cents, reference_type, reference_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", args: ["balance-tx-trade", "trade@example.com", "voucher_redeem", 100, 100, "voucher", "VCH", now] },
+        { sql: "INSERT INTO balance_recharge_orders (id, order_no, buyer_email, amount_cents, status, payment_provider, order_token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", args: ["recharge-trade", "RNO-TRADE", "trade@example.com", 100, "pending", "easypay", "token-hash", now, now] },
+        { sql: "INSERT INTO coupons (code, product_id, discount_type, discount_value, active, created_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["coupon-trade", "prod-trade", "fixed", 10, 1, now] },
+        { sql: "INSERT INTO campaigns (code, name, active, created_at) VALUES (?, ?, ?, ?)", args: ["camp-trade", "活动", 1, now] },
+        { sql: "INSERT INTO referral_codes (code, owner_contact, active, created_at) VALUES (?, ?, ?, ?)", args: ["ref-trade", "owner", 1, now] },
+        { sql: "INSERT INTO voucher_codes (code, amount_cents, status, batch_id, created_at) VALUES (?, ?, ?, ?, ?)", args: ["VCH-TRADE0001", 100, "active", "vbatch-trade", now] },
+        { sql: "INSERT INTO request_logs (id, ip_hash, method, path, action, status_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["request-trade", "ip", "GET", "/api/products", "products", 200, now] },
+        { sql: "INSERT INTO admin_audit_logs (id, action, target_type, target_id, metadata_json, ip_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["audit-trade-old", "old", "system", "old", "{}", "ip", now] },
+      ]);
+
+      const result = await clearBusinessDataPreservingConfig(createDb(client), "admin-ip", { profile: "keep_trade" });
+
+      expect(result.profile).toBe("keep_trade");
+      expect(result.cardStrategy).toBe("none");
+      // 交易与库存保留
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM orders")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM order_items")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM order_events")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM cards")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM card_batches")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM card_logs")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM products")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM storefronts WHERE id = 'sf-trade'")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM storefront_products WHERE product_id = 'prod-trade'")).rows[0]?.c || 0)).toBe(1);
+      // 账本 / 营销 / 运行态清除
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM user_balances")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM balance_transactions")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM balance_recharge_orders")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM coupons")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM campaigns")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM voucher_codes")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM request_logs")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM admin_audit_logs")).rows[0]?.c || 0)).toBe(1);
+      expect(result.tables.orders).toBeUndefined();
+      expect(result.tables.cards).toBeUndefined();
+      expect(result.tables.user_balances).toBe(1);
+      expect(result.reservedTables).toEqual(expect.arrayContaining([
+        "system_config",
+        "products",
+        "orders",
+        "order_items",
+        "cards",
+        "card_batches",
+        "card_logs",
+        "storefront_products",
+      ]));
+      // 账本/营销不在保留声明中（本档会清）
+      expect(result.reservedTables).not.toContain("user_balances");
+      expect(result.reservedTables).not.toContain("coupons");
+      expect(result.reservedTables).not.toContain("balance_transactions");
+    } finally {
+      await client.execute("DELETE FROM admin_audit_logs").catch(() => undefined);
+      client.close();
+    }
+  });
   it("keeps merged log pages stable when new rows arrive between requests", async () => {
     const client = createClient({ url: "file::memory:?cache=shared" });
     try {

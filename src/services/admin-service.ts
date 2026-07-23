@@ -2769,13 +2769,14 @@ export async function clearAllMergedLogs(
 }
 
 /**
- * 数据维护清理档位（第一期：固定三档，禁止自由组合表，避免对账灾难）。
+ * 数据维护清理档位（固定档位，禁止自由组合表，避免对账灾难）。
  *
  * - runtime：只清日志与瞬态状态，不动交易/库存/账本/目录
+ * - keep_trade：清账本+营销+日志；保留商品、渠道、卡密、订单（及订单子表/卡密日志）
  * - keep_catalog：清交易+库存(S1 全清卡密)+账本+营销+日志；保留商品与展示渠道
- * - full：与历史「清除所有业务数据」一致（仍保留 system_config / 分类 / api_keys / 迁移）
+ * - full：与历史「清除所有业务数据」一致（仍保留 system_config / 分类 / api_keys / 迁移 / storefronts）
  */
-export type ClearBusinessDataProfile = "runtime" | "keep_catalog" | "full";
+export type ClearBusinessDataProfile = "runtime" | "keep_trade" | "keep_catalog" | "full";
 
 export type ClearBusinessDataResult = {
   deleted: number;
@@ -2786,9 +2787,10 @@ export type ClearBusinessDataResult = {
   cardStrategy: "none" | "clear_all";
 };
 
-/** 三档各自的确认短语：服务端与 UI 必须一致，禁止用布尔开关替代。 */
+/** 各档确认短语：服务端与 UI 必须一致，禁止用布尔开关替代。 */
 export const CLEAR_BUSINESS_DATA_CONFIRMATIONS: Record<ClearBusinessDataProfile, string> = {
   runtime: "清除运行态与日志",
+  keep_trade: "清除账本营销保留交易",
   keep_catalog: "清除交易数据保留商品",
   full: "清除所有业务数据",
 };
@@ -2800,16 +2802,39 @@ const CLEAR_BUSINESS_DATA_BASE_RESERVED = [
   "schema_migrations",
 ] as const;
 
+const CLEAR_BUSINESS_DATA_TRADE_RESERVED = [
+  "products",
+  "storefronts",
+  "storefront_products",
+  "orders",
+  "order_items",
+  "order_events",
+  "cards",
+  "card_batches",
+  "card_logs",
+] as const;
+
+/** runtime 除交易库存外，还保留账本与营销（仅清日志/瞬态）。 */
+const CLEAR_BUSINESS_DATA_WALLET_MARKETING_RESERVED = [
+  "user_balances",
+  "balance_transactions",
+  "balance_recharge_orders",
+  "voucher_codes",
+  "campaigns",
+  "referral_codes",
+  "referral_events",
+  "coupons",
+] as const;
+
 const CLEAR_BUSINESS_DATA_RESERVED_BY_PROFILE: Record<ClearBusinessDataProfile, readonly string[]> = {
   runtime: [
     ...CLEAR_BUSINESS_DATA_BASE_RESERVED,
-    "products",
-    "storefronts",
-    "storefront_products",
-    "orders",
-    "cards",
-    "user_balances",
-    "coupons",
+    ...CLEAR_BUSINESS_DATA_TRADE_RESERVED,
+    ...CLEAR_BUSINESS_DATA_WALLET_MARKETING_RESERVED,
+  ],
+  keep_trade: [
+    ...CLEAR_BUSINESS_DATA_BASE_RESERVED,
+    ...CLEAR_BUSINESS_DATA_TRADE_RESERVED,
   ],
   keep_catalog: [
     ...CLEAR_BUSINESS_DATA_BASE_RESERVED,
@@ -2831,7 +2856,8 @@ export type ClearBusinessDataOptions = {
  *
  * 安全边界：
  * - 不提供「清订单但原样保留 issued 卡密」——keep_catalog / full 清交易时卡密策略固定为 clear_all（S1）。
- * - 不删除 storefronts（full 档亦然，与历史行为一致；keep_catalog 保留渠道与商品映射，full 显式清映射后再清商品）。
+ * - keep_trade 保留订单与卡密，只清账本/营销/运行态，cardStrategy=none。
+ * - 不删除 storefronts（full 档亦然，与历史行为一致；keep_catalog/keep_trade 保留渠道与商品映射，full 显式清映射后再清商品）。
  * - 清除旧 admin_audit_logs，只写回本次清理凭证。
  * - 同步清理 rate_limit_windows / idempotency_keys，避免清库后被旧幂等/限流污染。
  */
@@ -2841,13 +2867,20 @@ export async function clearBusinessDataPreservingConfig(
   options: ClearBusinessDataOptions = {},
 ): Promise<ClearBusinessDataResult> {
   const profile: ClearBusinessDataProfile = options.profile ?? "full";
-  if (profile !== "runtime" && profile !== "keep_catalog" && profile !== "full") {
+  if (
+    profile !== "runtime"
+    && profile !== "keep_trade"
+    && profile !== "keep_catalog"
+    && profile !== "full"
+  ) {
     throw new Error("不支持的数据清理档位");
   }
 
   const reservedTables = [...CLEAR_BUSINESS_DATA_RESERVED_BY_PROFILE[profile]];
+  // 仅在会删除订单/卡密的档位使用 clear_all；runtime / keep_trade 不动库存与订单。
   const cardStrategy: ClearBusinessDataResult["cardStrategy"] =
-    profile === "runtime" ? "none" : "clear_all";
+    profile === "keep_catalog" || profile === "full" ? "clear_all" : "none";
+  const clearWalletAndMarketing = profile === "keep_trade" || profile === "keep_catalog" || profile === "full";
   const clearTradeAndInventory = profile === "keep_catalog" || profile === "full";
   const clearCatalogProducts = profile === "full";
 
@@ -2857,24 +2890,28 @@ export async function clearBusinessDataPreservingConfig(
       tables[table] = result.rowsAffected ?? 0;
     };
 
-    // 交易 / 库存 / 账本 / 营销：仅 keep_catalog 与 full。
+    // 交易 / 库存：仅 keep_catalog 与 full。
     // 删除顺序：先子表与引用，再订单与卡密，保证不留下 issued 卡指向已删订单。
     if (clearTradeAndInventory) {
       recordDelete("order_items", await tx.delete(orderItems));
       recordDelete("order_events", await tx.delete(orderEvents));
-      recordDelete("referral_events", await tx.delete(referralEvents));
-      recordDelete("balance_transactions", await tx.delete(balanceTransactions));
-      recordDelete("balance_recharge_orders", await tx.delete(balanceRechargeOrders));
       recordDelete("card_logs", await tx.delete(cardLogs));
       recordDelete("orders", await tx.delete(orders));
       // S1：与订单一并清空全部卡密与批次，禁止留下悬空 issued/locked 引用。
       recordDelete("cards", await tx.delete(cards));
+      recordDelete("card_batches", await tx.delete(cardBatches));
+    }
+
+    // 账本 / 营销：keep_trade 及以上。keep_trade 不清订单与卡密，避免对账链路断裂。
+    if (clearWalletAndMarketing) {
+      recordDelete("referral_events", await tx.delete(referralEvents));
+      recordDelete("balance_transactions", await tx.delete(balanceTransactions));
+      recordDelete("balance_recharge_orders", await tx.delete(balanceRechargeOrders));
       recordDelete("user_balances", await tx.delete(userBalances));
       recordDelete("voucher_codes", await tx.delete(voucherCodes));
       recordDelete("campaigns", await tx.delete(campaigns));
       recordDelete("referral_codes", await tx.delete(referralCodes));
       recordDelete("coupons", await tx.delete(coupons));
-      recordDelete("card_batches", await tx.delete(cardBatches));
     }
 
     if (clearCatalogProducts) {
@@ -2894,7 +2931,7 @@ export async function clearBusinessDataPreservingConfig(
       recordDelete("products", await tx.delete(products));
     }
 
-    // 三档均清理日志与瞬态状态，并轮转审计凭证。
+    // 各档均清理日志与瞬态状态，并轮转审计凭证。
     recordDelete("request_logs", await tx.delete(requestLogs));
     recordDelete("email_logs", await tx.delete(emailLogs));
     recordDelete("rate_limit_windows", await tx.delete(rateLimitWindows));
@@ -2943,7 +2980,9 @@ export type TodayPendingTasks = {
 export async function getTodayPendingTasks(
   db: DbType,
 ): Promise<TodayPendingTasks> {
-  // 1. 待确认线下付款：pending + offline 支付方式，今日创建
+  // 运营待办不能只看「今日创建」：跨日未确认的线下款、已付未发都必须露出。
+  // 列表上限 50，前端对满额显示「50+」，避免把截断当成真实 0/精确计数。
+  // 1. 待确认线下付款：pending + offline（任意创建日）
   const pendingOfflinePayments = await db
     .select(orderSelectFields)
     .from(orders)
@@ -2952,25 +2991,21 @@ export async function getTodayPendingTasks(
     .where(and(
       eq(orders.status, "pending"),
       eq(orders.paymentMethod, "offline"),
-      sql`date(${orders.createdAt}) = date('now')`,
     ))
     .orderBy(desc(orders.createdAt))
     .limit(50);
 
-  // 2. 已付未发：paid 状态且未 issued
+  // 2. 已付未发：status=paid（尚未 issued/履约完成）
   const paidButNotIssued = await db
     .select(orderSelectFields)
     .from(orders)
     .leftJoin(products, eq(products.id, orders.productId))
     .leftJoin(cards, eq(cards.id, orders.issuedCardId))
-    .where(and(
-      eq(orders.status, "paid"),
-      sql`date(${orders.createdAt}) = date('now')`,
-    ))
+    .where(eq(orders.status, "paid"))
     .orderBy(desc(orders.createdAt))
     .limit(50);
 
-  // 3. 低库存（复用已有函数）
+  // 3. 低库存（复用已有函数；与 summary.lowStockCount 同源）
   const lowStockProducts = await getLowStockProducts(db);
 
   return {

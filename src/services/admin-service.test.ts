@@ -767,22 +767,22 @@ describe("admin-service - Phase 3 运营效率工具", () => {
   // ── 今日待处理聚合 ──
 
   describe("getTodayPendingTasks", () => {
-    it("应返回今日待确认线下付款 + 已付未发 + 低库存", async () => {
+    it("应返回待确认线下付款 + 已付未发 + 低库存（含跨日订单）", async () => {
       let callIndex = 0;
       const db = {
         select: (_colMap?: unknown) => ({
           from: (_table?: unknown) => {
-            const table = _table;
             callIndex++;
             if (callIndex === 1) {
-              // pendingOfflinePayments
+              // pendingOfflinePayments — 跨日未确认也应返回
               return createSelectChain([
-                { id: "order-1", status: "pending", paymentMethod: "offline", createdAt: new Date().toISOString() }
+                { id: "order-1", status: "pending", paymentMethod: "offline", createdAt: "2026-01-01T00:00:00.000Z" },
               ]);
-            } else if (callIndex === 2) {
+            }
+            if (callIndex === 2) {
               // paidButNotIssued
               return createSelectChain([
-                { id: "order-2", status: "paid", createdAt: new Date().toISOString() }
+                { id: "order-2", status: "paid", createdAt: "2026-01-02T00:00:00.000Z" },
               ]);
             }
             // lowStockProducts (getLowStockProducts)

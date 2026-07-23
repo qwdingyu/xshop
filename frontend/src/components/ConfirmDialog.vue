@@ -62,6 +62,8 @@ function handleConfirm() {
 .confirm-message {
   font-size: 14px;
   line-height: 1.6;
+  /* 支持 askConfirm(`...\n\n...`) 多段说明；否则 HTML 会把换行压成空格 */
+  white-space: pre-line;
   color: var(--tg-text, #333);
 }
 </style>

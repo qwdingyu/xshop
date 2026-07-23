@@ -99,7 +99,7 @@ adminSystemConfigRoute.put("/", async (c) => {
 
 const clearBusinessDataSchema = z.object({
   // 档位与确认短语必须成对匹配；禁止仅靠布尔开关触发危险清理。
-  profile: z.enum(["runtime", "keep_catalog", "full"]).default("full"),
+  profile: z.enum(["runtime", "keep_trade", "keep_catalog", "full"]).default("full"),
   confirmation: z.string().trim().min(1).max(80),
   // 明确把“保留配置/系统参数”写进请求契约，防止未来误把接口语义改成全库清空。
   preserveConfigAndSystemParams: z.literal(true),
@@ -114,7 +114,8 @@ adminSystemConfigRoute.post("/clear-business-data", async (c) => {
   const profile = body.data.profile as ClearBusinessDataProfile;
   const expected = CLEAR_BUSINESS_DATA_CONFIRMATIONS[profile];
   if (body.data.confirmation !== expected) {
-    return fail(c, `确认短语与档位「${profile}」不匹配，请输入：${expected}`, 400);
+    // 勿在错误响应中回显正确短语，避免被脚本枚举/日志二次传播；前端 placeholder 与按钮区已展示。
+    return fail(c, `确认短语与档位「${profile}」不匹配`, 400);
   }
 
   const result = await clearBusinessDataPreservingConfig(getDb(c), await getIpHash(c), { profile });
