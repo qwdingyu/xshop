@@ -176,8 +176,8 @@
                 </button>
                 <button
                   class="btn btn-ghost btn-xs"
-                  title="复制用户侧购买链接（渠道内单商品深链）"
-                  :disabled="saving || loading || batchOperating"
+                  :title="item.active === false ? '商品已下架，无法生成购买链接' : '复制用户侧购买链接（渠道内单商品深链）'"
+                  :disabled="saving || loading || batchOperating || item.active === false"
                   @click="copyProductBuyLink(item)"
                 >
                   购买链接

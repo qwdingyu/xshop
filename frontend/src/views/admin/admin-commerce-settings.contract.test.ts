@@ -40,9 +40,16 @@ describe('admin commerce settings contract', () => {
     expect(productsSource).toContain('copyProductBuyLink')
     expect(productsSource).toContain('resolveAdminBuyLink')
     expect(productsSource).toContain('adminBuyLinkFailureMessage')
+    // 下架商品在商品列表直接禁用复制，避免无效点击
+    expect(productsSource).toContain('item.active === false')
     expect(storefrontsSource).toContain('copyProductBuyLink')
     expect(storefrontsSource).toContain('resolveAdminBuyLink')
-    expect(storefrontsSource).toContain('仅可为已选且可见的商品复制购买链接')
+    // 渠道映射：只允许已落库且未 dirty 的可见映射，禁止草稿死链
+    expect(storefrontsSource).toContain('canCopyPersistedStorefrontBuyLink')
+    expect(storefrontsSource).toContain('mappingBuyLinkGateMessage')
+    expect(storefrontsSource).toContain('canCopyBuyLink')
+    expect(storefrontsSource).toContain('persisted:')
+    expect(storefrontsSource).toContain('mappingBuyLinkGateMessage(gate.reason)')
     // 禁止静默拼到无渠道 path
     expect(productsSource).not.toContain("'/product/'")
     expect(storefrontsSource).not.toContain("'/product/'")

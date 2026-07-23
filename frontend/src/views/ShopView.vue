@@ -137,7 +137,9 @@ import {
 } from '@/lib/open-storefront-checkout'
 import {
   parseProductDeeplinkQuery,
+  shouldScrubProductDeeplinkAfterAttempt,
   stripProductDeeplinkQuery,
+  type DeeplinkScrubOutcome,
 } from '@/lib/storefront-product-link'
 import type { Product, ProductCategory } from '@/types'
 import { useRecharge } from '@/composables/useRecharge'
@@ -270,7 +272,8 @@ async function scrubProductDeeplinkQuery() {
  * 渠道内单商品深链：仅当当前渠道上下文已就绪时打开现有 PayModal。
  * - 不跳转其他渠道
  * - 成功路径仅一次 fetchProductDetail，再走 buildOpenCheckoutFromFetchedProduct
- * - 并发时只保留最后一次意图；成功/失败后 scrub query，避免刷新连环弹
+ * - 仅在本意图到达售卖终态（打开 / 确认不可售 / builder 拒绝）后 scrub；
+ *   忙锁冲突与过期序号绝不清掉 product，避免推广链被误吞
  */
 async function tryOpenProductDeeplink(storefrontId: string, storefrontSlug: string) {
   const productKey = parseProductDeeplinkQuery(route.query as Record<string, unknown>)
@@ -280,21 +283,34 @@ async function tryOpenProductDeeplink(storefrontId: string, storefrontSlug: stri
   const openLockKey = `deeplink:${productKey}`
   deeplinkOpening.value = true
 
+  let ownedAttempt = false
+  let outcome: DeeplinkScrubOutcome = 'stale_or_left'
+
   try {
     if (openingProductId.value && openingProductId.value !== openLockKey) {
+      outcome = 'busy_conflict'
       showToast('正在打开其他商品，请稍候再试', 'error')
       return
     }
     // 占位互斥：详情返回前也挡住卡片连点；成功路径只 fetch 一次，不再进入 handlePay
     openingProductId.value = openLockKey
+    ownedAttempt = true
+
     const latest = await fetchProductDetail(productKey, storefrontSlug)
-    if (requestSequence !== deeplinkRequestSequence) return
-    if (storefront.value?.id !== storefrontId) return
+    if (requestSequence !== deeplinkRequestSequence || storefront.value?.id !== storefrontId) {
+      outcome = 'stale_or_left'
+      return
+    }
     upsertProduct(latest)
-    openPayFromFetchedProduct(latest, storefrontId)
+    const opened = openPayFromFetchedProduct(latest, storefrontId)
+    outcome = opened ? 'opened' : 'open_refused'
   } catch (err: any) {
-    if (requestSequence !== deeplinkRequestSequence) return
-    if (storefront.value?.id !== storefrontId) return
+    if (requestSequence !== deeplinkRequestSequence || storefront.value?.id !== storefrontId) {
+      outcome = 'stale_or_left'
+      return
+    }
+    // 详情 404 / 渠道不可见：当前渠道确认不可售，可 scrub，避免刷新连环失败 toast
+    outcome = 'unsellable'
     showToast(err?.message || '商品在当前渠道不可售或已下架', 'error')
   } finally {
     // 仅释放本意图占用的锁，避免过期请求清掉新意图的锁
@@ -303,6 +319,14 @@ async function tryOpenProductDeeplink(storefrontId: string, storefrontSlug: stri
     }
     if (requestSequence === deeplinkRequestSequence) {
       deeplinkOpening.value = false
+    }
+    const shouldScrub = shouldScrubProductDeeplinkAfterAttempt({
+      ownedAttempt,
+      isLatestSequence: requestSequence === deeplinkRequestSequence,
+      stillOnExpectedStorefront: storefront.value?.id === storefrontId,
+      outcome,
+    })
+    if (shouldScrub) {
       await scrubProductDeeplinkQuery()
     }
   }

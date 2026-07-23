@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   adminBuyLinkFailureMessage,
+  canCopyPersistedStorefrontBuyLink,
+  mappingBuyLinkGateMessage,
   resolveAdminBuyLink,
 } from './resolve-admin-buy-link'
 
@@ -149,5 +151,63 @@ describe('resolveAdminBuyLink', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.url).toBe('https://shop.example/shop?product=prod-raw')
+  })
+})
+
+describe('canCopyPersistedStorefrontBuyLink', () => {
+  const active = { channelActive: true, productActive: true }
+
+  it('allows copy only when draft matches a persisted selected+visible mapping', () => {
+    expect(canCopyPersistedStorefrontBuyLink({
+      ...active,
+      draft: { selected: true, visible: true },
+      persisted: { selected: true, visible: true },
+    })).toEqual({ ok: true })
+  })
+
+  it('refuses unsaved new mappings so operators cannot copy 404 dead links', () => {
+    const notPersisted = canCopyPersistedStorefrontBuyLink({
+      ...active,
+      draft: { selected: true, visible: true },
+      persisted: null,
+    })
+    expect(notPersisted).toEqual({ ok: false, reason: 'not_persisted' })
+    expect(mappingBuyLinkGateMessage('not_persisted')).toMatch(/保存/)
+  })
+
+  it('refuses dirty drafts that diverge from the server snapshot', () => {
+    expect(canCopyPersistedStorefrontBuyLink({
+      ...active,
+      draft: { selected: true, visible: false },
+      persisted: { selected: true, visible: true },
+    })).toEqual({ ok: false, reason: 'draft_dirty' })
+
+    expect(canCopyPersistedStorefrontBuyLink({
+      ...active,
+      draft: { selected: false, visible: true },
+      persisted: { selected: true, visible: true },
+    })).toEqual({ ok: false, reason: 'draft_dirty' })
+  })
+
+  it('refuses invisible persisted mappings and inactive product/channel', () => {
+    expect(canCopyPersistedStorefrontBuyLink({
+      ...active,
+      draft: { selected: true, visible: false },
+      persisted: { selected: true, visible: false },
+    })).toEqual({ ok: false, reason: 'not_visible' })
+
+    expect(canCopyPersistedStorefrontBuyLink({
+      channelActive: true,
+      productActive: false,
+      draft: { selected: true, visible: true },
+      persisted: { selected: true, visible: true },
+    })).toEqual({ ok: false, reason: 'product_inactive' })
+
+    expect(canCopyPersistedStorefrontBuyLink({
+      channelActive: false,
+      productActive: true,
+      draft: { selected: true, visible: true },
+      persisted: { selected: true, visible: true },
+    })).toEqual({ ok: false, reason: 'storefront_inactive' })
   })
 })

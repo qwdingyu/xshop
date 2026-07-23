@@ -144,8 +144,8 @@
             <button
               class="btn btn-ghost btn-xs"
               type="button"
-              title="复制该渠道下的用户购买链接"
-              :disabled="!row.selected || !row.visible || !currentStorefront?.active || row.product.active === false"
+              :title="buyLinkButtonTitle(row)"
+              :disabled="!canCopyBuyLink(row)"
               @click="copyProductBuyLink(row)"
             >
               购买链接
@@ -189,7 +189,10 @@ import { formatDate } from '@/composables/useFormat'
 import { writeClipboardText } from '@/composables/useClipboard'
 import {
   adminBuyLinkFailureMessage,
+  canCopyPersistedStorefrontBuyLink,
+  mappingBuyLinkGateMessage,
   resolveAdminBuyLink,
+  type MappingBuyLinkPersisted,
 } from '@/lib/resolve-admin-buy-link'
 
 type MappingRow = {
@@ -197,6 +200,8 @@ type MappingRow = {
   selected: boolean
   visible: boolean
   sortOrder: number
+  /** 打开面板时服务端已落库的映射；null = 当时无映射（未保存的新建不可复制） */
+  persisted: MappingBuyLinkPersisted | null
 }
 
 const { token } = useAdminAuth()
@@ -354,11 +359,15 @@ async function openProducts(item: AdminStorefront) {
     const mapping = new Map(detail.products.map(entry => [entry.productId, entry]))
     productRows.value = products.map((product, index) => {
       const existing = mapping.get(product.id)
+      const persisted: MappingBuyLinkPersisted | null = existing
+        ? { selected: true, visible: existing.visible !== false }
+        : null
       return {
         product,
         selected: Boolean(existing),
         visible: existing?.visible ?? true,
         sortOrder: existing?.sortOrder ?? ((index + 1) * 10),
+        persisted,
       }
     }).sort(compareMappingRows)
   } catch (error) {
@@ -423,16 +432,37 @@ async function copyUrl(item: AdminStorefront) {
   }
 }
 
+/** 仅已落库且可见的映射可复制；草稿相对快照 dirty 时禁用，避免 404 死链投放 */
+function mappingBuyLinkGate(row: MappingRow) {
+  return canCopyPersistedStorefrontBuyLink({
+    channelActive: currentStorefront.value?.active !== false,
+    productActive: row.product.active !== false,
+    draft: { selected: row.selected, visible: row.visible },
+    persisted: row.persisted,
+  })
+}
+
+function canCopyBuyLink(row: MappingRow): boolean {
+  return mappingBuyLinkGate(row).ok
+}
+
+function buyLinkButtonTitle(row: MappingRow): string {
+  const gate = mappingBuyLinkGate(row)
+  if (gate.ok) return '复制该渠道下已保存的用户购买链接'
+  return mappingBuyLinkGateMessage(gate.reason)
+}
+
 /**
  * 当前渠道内单商品购买链接。
- * 编辑面板里的 selected/visible 是未保存草稿态：仅当已选且可见时才允许复制；
+ * 必须先落库（selected+visible 与打开面板时的服务端快照一致）；
  * 商品上架与渠道启用仍走 resolveAdminBuyLink 硬闸门。
  */
 async function copyProductBuyLink(row: MappingRow) {
   const channel = currentStorefront.value
   if (!channel) return
-  if (!row.selected || !row.visible) {
-    showToast('仅可为已选且可见的商品复制购买链接', 'error')
+  const gate = mappingBuyLinkGate(row)
+  if (!gate.ok) {
+    showToast(mappingBuyLinkGateMessage(gate.reason), 'error')
     return
   }
   const resolved = resolveAdminBuyLink({
@@ -457,7 +487,7 @@ async function copyProductBuyLink(row: MappingRow) {
   }
   try {
     await writeClipboardText(resolved.url)
-    showToast('购买链接已复制', 'success')
+    showToast(`购买链接已复制（${resolved.storefront.name}）`, 'success')
   } catch {
     showToast('复制购买链接失败', 'error')
   }

@@ -6,6 +6,7 @@ import {
   parseProductDeeplinkQuery,
   productDeeplinkConsumeKey,
   productLinkKey,
+  shouldScrubProductDeeplinkAfterAttempt,
   stripProductDeeplinkQuery,
 } from './storefront-product-link'
 
@@ -45,5 +46,44 @@ describe('storefront product buy link', () => {
   it('scopes one-shot consumption to storefront + product key', () => {
     expect(productDeeplinkConsumeKey('sf_a', 'useai')).toBe('sf_a::useai')
     expect(productDeeplinkConsumeKey('sf_a', 'useai')).not.toBe(productDeeplinkConsumeKey('sf_b', 'useai'))
+  })
+
+  it('scrubs product only after a owned attempt reaches a sellable terminal outcome', () => {
+    const base = {
+      ownedAttempt: true,
+      isLatestSequence: true,
+      stillOnExpectedStorefront: true,
+    }
+    expect(shouldScrubProductDeeplinkAfterAttempt({ ...base, outcome: 'opened' })).toBe(true)
+    expect(shouldScrubProductDeeplinkAfterAttempt({ ...base, outcome: 'unsellable' })).toBe(true)
+    expect(shouldScrubProductDeeplinkAfterAttempt({ ...base, outcome: 'open_refused' })).toBe(true)
+
+    // 忙锁：推广链必须保留，允许用户稍后再试
+    expect(shouldScrubProductDeeplinkAfterAttempt({
+      ownedAttempt: false,
+      isLatestSequence: true,
+      stillOnExpectedStorefront: true,
+      outcome: 'busy_conflict',
+    })).toBe(false)
+
+    // 过期序号 / 离开渠道：不清，避免误吞仍有效的 query
+    expect(shouldScrubProductDeeplinkAfterAttempt({
+      ownedAttempt: true,
+      isLatestSequence: false,
+      stillOnExpectedStorefront: true,
+      outcome: 'opened',
+    })).toBe(false)
+    expect(shouldScrubProductDeeplinkAfterAttempt({
+      ownedAttempt: true,
+      isLatestSequence: true,
+      stillOnExpectedStorefront: false,
+      outcome: 'unsellable',
+    })).toBe(false)
+    expect(shouldScrubProductDeeplinkAfterAttempt({
+      ownedAttempt: true,
+      isLatestSequence: true,
+      stillOnExpectedStorefront: true,
+      outcome: 'stale_or_left',
+    })).toBe(false)
   })
 })

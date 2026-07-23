@@ -118,3 +118,61 @@ export function adminBuyLinkFailureMessage(reason: AdminBuyLinkFailureReason): s
       return '无法生成购买链接'
   }
 }
+
+/**
+ * 渠道商品映射面板：是否允许复制购买链接。
+ * 只认已落库的「已选 + 可见」；草稿改动未保存时禁止，避免复制出 404 死链。
+ */
+export type MappingBuyLinkGateFailure =
+  | 'not_persisted'
+  | 'draft_dirty'
+  | 'not_visible'
+  | 'product_inactive'
+  | 'storefront_inactive'
+
+export type MappingBuyLinkPersisted = {
+  selected: boolean
+  visible: boolean
+}
+
+export function canCopyPersistedStorefrontBuyLink(input: {
+  channelActive: boolean
+  productActive: boolean
+  /** 面板当前草稿 */
+  draft: { selected: boolean; visible: boolean }
+  /** 打开面板/上次加载时的服务端快照；null = 服务端无此映射 */
+  persisted: MappingBuyLinkPersisted | null
+}): { ok: true } | { ok: false; reason: MappingBuyLinkGateFailure } {
+  if (!input.channelActive) return { ok: false, reason: 'storefront_inactive' }
+  if (!input.productActive) return { ok: false, reason: 'product_inactive' }
+  if (!input.persisted?.selected) return { ok: false, reason: 'not_persisted' }
+  if (!input.persisted.visible) return { ok: false, reason: 'not_visible' }
+  // 草稿相对落库的 selected/visible 有变更 → 必须先保存
+  if (
+    input.draft.selected !== input.persisted.selected
+    || input.draft.visible !== input.persisted.visible
+  ) {
+    return { ok: false, reason: 'draft_dirty' }
+  }
+  if (!input.draft.selected || !input.draft.visible) {
+    return { ok: false, reason: 'not_visible' }
+  }
+  return { ok: true }
+}
+
+export function mappingBuyLinkGateMessage(reason: MappingBuyLinkGateFailure): string {
+  switch (reason) {
+    case 'not_persisted':
+      return '请先保存商品映射后再复制购买链接'
+    case 'draft_dirty':
+      return '映射尚未保存，请先点击「保存商品映射」再复制'
+    case 'not_visible':
+      return '仅可为已落库且可见的商品复制购买链接'
+    case 'product_inactive':
+      return '商品已下架，无法生成用户购买链接'
+    case 'storefront_inactive':
+      return '该渠道已停用，无法生成用户购买链接'
+    default:
+      return '无法生成购买链接'
+  }
+}

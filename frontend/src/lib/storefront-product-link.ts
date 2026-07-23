@@ -63,3 +63,38 @@ export function stripProductDeeplinkQuery<T extends Record<string, unknown>>(que
 export function productDeeplinkConsumeKey(storefrontId: string, productKey: string): string {
   return `${storefrontId}::${productKey}`
 }
+
+/**
+ * 深链意图终态后是否应 scrub `?product=`。
+ *
+ * 仅在「本意图已拥有打开锁，且到达可判定的售卖结论」时清除：
+ * - opened：已打开收银台
+ * - unsellable：当前渠道确认不可售（404/下架/映射不存在等）
+ * - open_refused：详情已取回但 builder 拒绝（售罄、渠道竞态等）
+ *
+ * 忙锁冲突、过期序号、中途离开渠道：保留 query，避免推广链被误吞。
+ */
+export type DeeplinkScrubOutcome =
+  | 'busy_conflict'
+  | 'stale_or_left'
+  | 'opened'
+  | 'unsellable'
+  | 'open_refused'
+
+export function shouldScrubProductDeeplinkAfterAttempt(input: {
+  /** 本意图是否成功占有打开锁并开始执行（忙锁冲突为 false） */
+  ownedAttempt: boolean
+  /** 是否仍是最新一次深链序号 */
+  isLatestSequence: boolean
+  /** 是否仍在启动时的渠道上下文 */
+  stillOnExpectedStorefront: boolean
+  outcome: DeeplinkScrubOutcome
+}): boolean {
+  if (!input.ownedAttempt) return false
+  if (!input.isLatestSequence) return false
+  if (!input.stillOnExpectedStorefront) return false
+  if (input.outcome === 'busy_conflict' || input.outcome === 'stale_or_left') return false
+  return input.outcome === 'opened'
+    || input.outcome === 'unsellable'
+    || input.outcome === 'open_refused'
+}
