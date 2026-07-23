@@ -50,8 +50,33 @@ for (const token of [
   "--admin-inline-gap:",
   "--admin-control-gap:",
   "--admin-card-gap:",
+  "--admin-control-height-sm:",
 ]) {
   if (!baseCss.includes(token)) fail(`${baseCssPath} must define token ${token.trim()}`);
+}
+
+// 分页紧凑：必须压过全局 select min-height:34
+const paginationPath = "frontend/src/components/AdminPagination.vue";
+let paginationSrc = "";
+try {
+  paginationSrc = readFileSync(paginationPath, "utf8");
+} catch {
+  fail(`${paginationPath} missing`);
+}
+if (paginationSrc) {
+  if (!paginationSrc.includes("--admin-control-height-sm")) {
+    fail(`${paginationPath} must use --admin-control-height-sm for compact controls`);
+  }
+  if (!/min-height:\s*var\(--admin-control-height-sm/.test(paginationSrc)) {
+    fail(`${paginationPath} .limit-select must override global select min-height via --admin-control-height-sm`);
+  }
+  // 禁止规则里写死 min-height: 34px（注释里提到全局 34px 可忽略）
+  const paginationRulesOnly = paginationSrc
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  if (/min-height:\s*34px/.test(paginationRulesOnly)) {
+    fail(`${paginationPath} must not set min-height: 34px on pagination controls`);
+  }
 }
 
 // 表格紧凑字号：禁止把 base 抬回 14px 行高过大

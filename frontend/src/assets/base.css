@@ -92,6 +92,9 @@
   --admin-control-gap: 8px;
   /* 卡片/表单内部字段间距 */
   --admin-card-gap: 10px;
+  /* 控件高度：工具栏 34；分页等紧凑条 26（覆盖全局 select min-height:34） */
+  --admin-control-height: 34px;
+  --admin-control-height-sm: 26px;
 
   /* ── 前端页面尺寸变量（在 @media 中覆盖） ── */
   --content-pad: 16px;
