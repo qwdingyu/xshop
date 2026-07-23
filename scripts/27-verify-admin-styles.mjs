@@ -46,6 +46,10 @@ for (const token of [
   "--admin-font-base:",
   "--admin-font-sm:",
   "--admin-cell-pad:",
+  "--admin-stack-gap:",
+  "--admin-inline-gap:",
+  "--admin-control-gap:",
+  "--admin-card-gap:",
 ]) {
   if (!baseCss.includes(token)) fail(`${baseCssPath} must define token ${token.trim()}`);
 }
@@ -56,6 +60,38 @@ if (!/--admin-font-base:\s*13px/.test(baseCss)) {
 }
 if (!/--admin-font-sm:\s*11px/.test(baseCss)) {
   fail(`${baseCssPath} --admin-font-sm must be 11px`);
+}
+
+// 页面区块间距：默认紧凑 8px，桌面最多 10px；禁止再抬到 14–16
+if (!/--admin-stack-gap:\s*8px/.test(baseCss)) {
+  fail(`${baseCssPath} --admin-stack-gap default must be 8px`);
+}
+if (!/--admin-inline-gap:\s*8px/.test(baseCss)) {
+  fail(`${baseCssPath} --admin-inline-gap default must be 8px`);
+}
+if (!/\.admin-page\s*\{[^}]*gap:\s*var\(--admin-stack-gap/s.test(adminCss)) {
+  fail(`${adminCssPath} .admin-page must use gap: var(--admin-stack-gap)`);
+}
+// 历史回归：media 里硬编码放大 admin-page / toolbar gap
+if (/\.admin-page\s*\{[^}]*gap:\s*1[4-9]px/s.test(adminCss) || /\.admin-page\s*\{[^}]*gap:\s*2\dpx/s.test(adminCss)) {
+  fail(`${adminCssPath} .admin-page must not hardcode large gap (use --admin-stack-gap token)`);
+}
+if (/\.toolbar\s*\{[^}]*gap:\s*1[4-9]px/s.test(adminCss) || /\.toolbar\s*\{[^}]*gap:\s*2\dpx/s.test(adminCss)) {
+  fail(`${adminCssPath} .toolbar must not hardcode large gap (use --admin-control-gap)`);
+}
+// notice / stat 禁止再叠 margin-bottom 造成双倍空白
+const noticeBlock = adminCss.match(/\.notice-card,\s*\n\.admin-notice\s*\{[\s\S]*?\n\}/)?.[0]
+  || adminCss.match(/\.notice-card\s*\{[\s\S]*?\n\}/)?.[0]
+  || "";
+if (noticeBlock && /margin-bottom:\s*\d+px/.test(noticeBlock)) {
+  fail(`${adminCssPath} .notice-card must not set margin-bottom (stack via .admin-page gap)`);
+}
+const statStripBlock = adminCss.match(/\.stat-strip\s*\{[\s\S]*?\n\}/)?.[0] || "";
+if (statStripBlock && /margin-bottom:\s*\d+px/.test(statStripBlock)) {
+  fail(`${adminCssPath} .stat-strip must not set margin-bottom (stack via .admin-page gap)`);
+}
+if (!convention.includes("--admin-stack-gap") || !convention.includes("禁止") || !convention.includes("margin-bottom")) {
+  fail(`${conventionPath} must document stack-gap tokens and no double margin-bottom rule`);
 }
 
 // 暗色 select：必须 color-scheme dark + 不透明底（避免选中/列表字发灰）

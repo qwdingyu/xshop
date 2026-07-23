@@ -634,11 +634,9 @@ onMounted(loadData)
 
 <style>@import '@/assets/admin.css';</style>
 <style scoped>
-/* notice-card / relation-cell / secret-cell / same-code-tag → admin.css，勿再复制 */
-.notice-card {
-  margin-bottom: 12px;
-}
-
+/* notice-card / relation-cell / secret-cell / same-code-tag → admin.css
+ * 垂直间距仅靠 .admin-page gap（--admin-stack-gap），禁止 margin-bottom 叠距。
+ */
 .notice-card strong {
   margin-right: 8px;
 }

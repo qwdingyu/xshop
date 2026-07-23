@@ -15,11 +15,14 @@
   opacity: 0;
 }
 
-/* ── 页面容器 ── */
+/* ── 页面容器 ──
+ * 垂直区块间距唯一真相：--admin-stack-gap（base.css）。
+ * 子块（notice / stats / chips / table）禁止再写 margin-bottom 叠距。
+ */
 .admin-page {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--admin-stack-gap, 8px);
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -30,8 +33,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: var(--admin-control-gap, 8px);
+  padding: var(--admin-card-pad, 10px) 12px;
   background: var(--tg-secondary-bg, #151b28);
   border-radius: var(--r-lg, 12px);
   border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
@@ -45,7 +48,7 @@
 .filters {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--admin-control-gap, 8px);
   flex-wrap: wrap;
   flex: 1;
   min-width: 0;
@@ -169,7 +172,7 @@
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--admin-inline-gap, 8px);
   flex-shrink: 0;
 }
 
@@ -305,13 +308,15 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: var(--admin-control-gap, 8px);
+  padding: 8px 12px;
   border: 0.5px solid rgba(239, 68, 68, 0.24);
   border-radius: var(--r-lg, 12px);
   background: rgba(239, 68, 68, 0.07);
   color: var(--tg-destructive, #dc2626);
   font-size: 13px;
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .table-error .btn {
@@ -428,7 +433,7 @@
 .modal-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--admin-card-gap, 10px);
 }
 
 .modal-form label {
@@ -516,7 +521,7 @@
 .detail-box {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--admin-card-gap, 10px);
 }
 
 .detail-section {
@@ -586,32 +591,25 @@
 
 /* ═══════════════════════════════════════════════════════
    小桌面断点（≥770px，对应 sidebar 可见的最小宽度）
-   admin-content-pad / admin-cell-pad 由 base.css 变量驱动
+   admin-content-pad / admin-cell-pad / stack-gap 由 base.css 变量驱动
+   禁止在此硬编码放大 .admin-page / .toolbar 的 gap（会叠出过大留白）
    ═══════════════════════════════════════════════════════ */
 @media (min-width: 770px) {
-  .admin-page {
-    gap: 14px;
-  }
-
-  .toolbar {
-    gap: 14px;
-  }
-
   .empty-text {
     padding: 24px;
     font-size: 13px;
   }
 
   .modal-form {
-    gap: 14px;
+    gap: var(--admin-card-gap, 12px);
   }
 
   .detail-box {
-    gap: 12px;
+    gap: var(--admin-card-gap, 12px);
   }
 
   .detail-section {
-    padding: 12px;
+    padding: var(--admin-card-pad, 12px);
   }
 
   .detail-row {
@@ -623,18 +621,6 @@
    桌面断点覆盖（≥1024px）
    ═══════════════════════════════════════════════════════ */
 @media (min-width: 1024px) {
-  .admin-page {
-    gap: 16px;
-  }
-
-  .toolbar {
-    gap: 16px;
-  }
-
-  .filters {
-    gap: 10px;
-  }
-
   /* 禁止在此重写上下 padding / 放大字号；会再次裁切 select 文字 */
   .filters input:not([type='checkbox']):not([type='radio']),
   .filters select {
@@ -661,7 +647,7 @@
   }
 
   .modal-form {
-    gap: 14px;
+    gap: var(--admin-card-gap, 12px);
   }
 
   .modal-form label {
@@ -679,11 +665,11 @@
   }
 
   .detail-box {
-    gap: 14px;
+    gap: var(--admin-card-gap, 12px);
   }
 
   .detail-section {
-    padding: 14px;
+    padding: var(--admin-card-pad, 12px);
   }
 
   .detail-row {
@@ -698,7 +684,7 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--admin-control-gap, 8px);
   padding: 8px 12px;
   border: 1px solid var(--admin-accent-border, rgba(245, 158, 11, 0.38));
   border-radius: var(--r-lg, 12px);
@@ -706,6 +692,9 @@
   color: var(--tg-text, #f0f2f5);
   font-size: 13px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+  /* 间距交给 .admin-page gap，禁止 margin-bottom */
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .bulk-bar > span:first-child {
@@ -720,16 +709,18 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--admin-inline-gap, 8px);
 }
 
 .table-command-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px 12px;
+  gap: var(--admin-inline-gap, 8px) var(--admin-control-gap, 8px);
   min-height: 34px;
   flex-wrap: wrap;
+  margin: 0;
+  flex-shrink: 0;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -743,7 +734,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--admin-inline-gap, 8px);
   margin: 0;
 }
 
@@ -847,20 +838,24 @@
   font-weight: 600;
 }
 
-/* 说明 / 提示卡（cards notice 同色） */
+/* 说明 / 提示卡（cards notice 同色）
+ * 垂直间距仅靠 .admin-page gap；禁止页面再写 margin-bottom。
+ */
 .notice-card,
 .admin-notice {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 8px;
-  padding: 12px 14px;
+  gap: 4px var(--admin-inline-gap, 8px);
+  padding: 8px 12px;
   border-radius: var(--r-md, 8px);
   border: 1px solid var(--admin-accent-border, rgba(245, 158, 11, 0.38));
   background: var(--admin-accent-soft, rgba(245, 158, 11, 0.14));
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.5;
   color: var(--tg-text, #f0f2f5);
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .notice-card strong,
@@ -1513,12 +1508,15 @@
   flex-wrap: wrap;
 }
 
-/* ── 统计小卡（充值码概览等） ── */
+/* ── 统计小卡（充值码概览等） ──
+ * 垂直间距仅靠 .admin-page gap；禁止 margin-bottom 叠距。
+ */
 .stat-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(120px, 1fr));
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: var(--admin-inline-gap, 8px);
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .stat-item {

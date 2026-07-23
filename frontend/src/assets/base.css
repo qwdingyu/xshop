@@ -77,12 +77,21 @@
 
   /* ── 管理后台尺寸变量（在 @media 中覆盖） ──
    * 表格主字号 / 行高：偏紧凑（13 / 11 + 较小 cell pad），勿再把 base 抬回 14px。
+   * 间距铁律（docs/049）：页面区块只靠 .admin-page gap，禁止再叠 margin-bottom。
    */
   --admin-content-pad: 10px;
   --admin-card-pad: 10px;
   --admin-cell-pad: 6px 8px;
   --admin-font-base: 13px;
   --admin-font-sm: 11px;
+  /* 垂直区块间距：工具栏 / notice / chip 条 / 表格之间 */
+  --admin-stack-gap: 8px;
+  /* 行内控件：chip、按钮组、筛选条 */
+  --admin-inline-gap: 8px;
+  /* 工具栏 filters / actions 控件间距 */
+  --admin-control-gap: 8px;
+  /* 卡片/表单内部字段间距 */
+  --admin-card-gap: 10px;
 
   /* ── 前端页面尺寸变量（在 @media 中覆盖） ── */
   --content-pad: 16px;
@@ -99,6 +108,11 @@
     --admin-card-pad: 12px;
     /* 表格保持紧凑，勿放大 cell pad */
     --admin-cell-pad: 6px 10px;
+    /* 大屏略松一点，但禁止再抬到 14–16px（历史曾导致控件间空白过大） */
+    --admin-stack-gap: 10px;
+    --admin-control-gap: 10px;
+    --admin-inline-gap: 8px;
+    --admin-card-gap: 12px;
 
     /* 前端页面 */
     --content-pad: 20px;
@@ -116,6 +130,11 @@
     --admin-cell-pad: 6px 10px;
     --admin-font-base: 13px;
     --admin-font-sm: 11px;
+    /* 与 770 保持同一 stack，勿在 1024 再放大 gap */
+    --admin-stack-gap: 10px;
+    --admin-control-gap: 10px;
+    --admin-inline-gap: 8px;
+    --admin-card-gap: 12px;
 
     /* 前端页面 */
     --content-pad: 20px;

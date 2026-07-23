@@ -728,8 +728,10 @@ onMounted(() => {
 .balance-snapshot {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: var(--admin-control-gap, 8px);
+  /* 垂直间距交给 .admin-page gap */
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .snapshot-card {

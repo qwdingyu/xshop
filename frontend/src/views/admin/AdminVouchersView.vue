@@ -20,7 +20,7 @@
       </div>
     </div>
 
-    <section class="voucher-stats" aria-label="充值码统计">
+    <section class="stat-strip" aria-label="充值码统计">
       <div class="stat-item"><span>可兑换</span><strong>{{ stats.active }}</strong><small>{{ formatMoney(stats.totalAmount, 'CNY') }}</small></div>
       <div class="stat-item"><span>已兑换</span><strong>{{ stats.used }}</strong><small>{{ formatMoney(stats.usedAmount, 'CNY') }}</small></div>
       <div class="stat-item"><span>已过期</span><strong>{{ stats.expired }}</strong></div>
@@ -272,22 +272,11 @@ onMounted(loadData)
 
 <style>@import '@/assets/admin.css';</style>
 <style scoped>
-/* stat-strip/stat-item / generated-result / modal-actions → admin.css */
-.voucher-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
+/* stat-strip/stat-item / generated-result / modal-actions → admin.css
+ * 垂直间距仅靠 .admin-page gap，勿再写 margin-bottom。
+ */
 .code-cell code {
   white-space: nowrap;
   font-size: 12px;
-}
-
-@media (max-width: 640px) {
-  .voucher-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 </style>

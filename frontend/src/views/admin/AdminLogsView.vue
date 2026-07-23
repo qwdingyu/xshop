@@ -403,8 +403,10 @@ onMounted(loadData)
 .preset-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: var(--admin-control-gap, 8px);
+  /* 垂直间距交给 .admin-page gap */
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .hash-fingerprint {

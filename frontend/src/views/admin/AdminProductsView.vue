@@ -1058,7 +1058,7 @@ watch(() => form.coverUrl, () => {
 .product-editor-scroll {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--admin-card-gap, 12px);
   min-height: 0;
   flex: 1 1 auto;
   overflow-y: auto;
@@ -1070,8 +1070,8 @@ watch(() => form.coverUrl, () => {
 .form-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 12px 14px;
+  gap: var(--admin-card-gap, 10px);
+  padding: var(--admin-card-pad, 12px);
   border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
   border-radius: var(--r-md, 8px);
   background: var(--tg-secondary-bg, rgba(0, 0, 0, 0.18));
@@ -1127,7 +1127,7 @@ watch(() => form.coverUrl, () => {
 .media-price-layout {
   display: grid;
   grid-template-columns: minmax(160px, 0.9fr) minmax(0, 1.2fr);
-  gap: 14px;
+  gap: var(--admin-card-gap, 12px);
   align-items: start;
 }
 
@@ -1135,7 +1135,7 @@ watch(() => form.coverUrl, () => {
 .price-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--admin-inline-gap, 8px);
   min-width: 0;
 }
 

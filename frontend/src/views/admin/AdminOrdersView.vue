@@ -1098,8 +1098,8 @@ watch(
 .detail-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
+  gap: var(--admin-inline-gap, 8px);
+  margin-top: var(--admin-stack-gap, 8px);
 }
 
 /* detail-json 由 admin.css 提供 */

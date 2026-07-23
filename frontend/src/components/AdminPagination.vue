@@ -118,12 +118,14 @@ watch(() => props.page, () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--admin-control-gap, 8px);
   flex-wrap: wrap;
   background: var(--tg-secondary-bg, #151b28);
   border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: var(--r-lg, 12px);
-  padding: 10px 12px;
+  padding: 8px 12px;
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .pagination-info {
@@ -134,7 +136,7 @@ watch(() => props.page, () => {
 .pagination-right {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--admin-control-gap, 8px);
   flex-wrap: wrap;
 }
 

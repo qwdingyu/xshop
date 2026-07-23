@@ -459,7 +459,7 @@ onMounted(loadData)
   padding: 0 2px 24px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--admin-stack-gap, 8px);
 }
 
 .config-section-head--advanced {
@@ -470,13 +470,13 @@ onMounted(loadData)
 .config-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
+  gap: var(--admin-card-gap, 10px);
 }
 
 .config-group {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--admin-stack-gap, 8px);
 }
 
 .config-group-title {
@@ -561,8 +561,8 @@ onMounted(loadData)
 
 .danger-profiles {
   display: grid;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: var(--admin-inline-gap, 8px);
+  margin: 0 0 var(--admin-stack-gap, 8px);
 }
 
 .danger-profile {

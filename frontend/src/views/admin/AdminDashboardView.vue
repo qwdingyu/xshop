@@ -547,7 +547,8 @@ onMounted(() => {
 .admin-dashboard {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  /* 区块间距与全站 stack token 对齐（略大于列表页 8/10，用 card-gap 作仪表盘段落） */
+  gap: var(--admin-card-gap, 12px);
   height: 100%;
   min-height: 0;
   overflow: auto;
@@ -556,8 +557,8 @@ onMounted(() => {
 .priority-board {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px;
+  gap: var(--admin-card-gap, 12px);
+  padding: var(--admin-card-pad, 12px);
   border-radius: var(--r-lg, 12px);
   border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
   background: var(--tg-secondary-bg, #151b28);
@@ -843,13 +844,13 @@ onMounted(() => {
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 12px;
+  gap: var(--admin-card-gap, 12px);
 }
 
 .stat-card {
   background: var(--tg-secondary-bg, #151b28);
   border-radius: var(--r-lg, 12px);
-  padding: 14px 14px;
+  padding: var(--admin-card-pad, 12px);
   text-align: center;
   border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
 }
@@ -892,7 +893,7 @@ onMounted(() => {
 .card {
   background: var(--tg-secondary-bg, #151b28);
   border-radius: var(--r-lg, 12px);
-  padding: 14px 14px;
+  padding: var(--admin-card-pad, 12px);
   border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
 }
 
@@ -900,7 +901,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: var(--admin-stack-gap, 8px);
 }
 
 .card-title {
@@ -1131,13 +1132,11 @@ onMounted(() => {
 
 /* ── 桌面断点 ── */
 @media (min-width: 1024px) {
-  .admin-dashboard {
-    gap: 20px;
-  }
+  /* 间距继续走 --admin-card-gap，勿硬编码放大 */
 
   .stats-grid {
     grid-template-columns: repeat(5, 1fr);
-    gap: 14px;
+    gap: var(--admin-card-gap, 12px);
   }
 
   .stat-card {
@@ -1158,7 +1157,7 @@ onMounted(() => {
   }
 
   .card-header {
-    margin-bottom: 12px;
+    margin-bottom: var(--admin-stack-gap, 8px);
   }
 }
 </style>
