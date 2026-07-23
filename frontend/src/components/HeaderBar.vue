@@ -69,8 +69,8 @@ import { useStorefrontContext } from '@/composables/useStorefrontContext'
 const { isTelegram, isMobile } = usePlatform()
 const { shopName, balanceRechargeEnabled } = useShopConfig()
 const { openRecharge } = useRecharge()
-const { storefront } = useStorefrontContext()
-const homePath = computed(() => storefront.value?.homePath || '/shop')
+const { storefront, homePath: storefrontHomePath } = useStorefrontContext()
+const homePath = computed(() => storefrontHomePath.value)
 const brandName = computed(() => storefront.value?.name || shopName.value)
 const brandLogoUrl = computed(() => storefront.value?.logoUrl || '')
 // Telegram 移动端使用底部原生 Tab，充值继续留在商品页工具行，避免把导航和操作混成四个 Tab。

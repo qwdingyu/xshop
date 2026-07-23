@@ -82,7 +82,7 @@
       </div>
 
       <div class="step-actions">
-        <RouterLink to="/shop" class="btn btn-primary">返回首页</RouterLink>
+        <RouterLink :to="shopHomePath" class="btn btn-primary">返回首页</RouterLink>
       </div>
     </div>
   </div>
@@ -98,6 +98,7 @@ import { useShopConfig } from '@/composables/useShopConfig'
 import { useToast } from '@/composables/useToast'
 import { copyText } from '@/composables/useClipboard'
 import { fieldLabel, getDeliveryEntries } from '@/composables/useDeliveryDisplay'
+import { useStorefrontContext } from '@/composables/useStorefrontContext'
 import { normalizeOrderStatus, TERMINAL_ORDER_STATUS_SET } from '@shared/order-status'
 import type { Order } from '@/types'
 
@@ -107,6 +108,8 @@ const error = ref('')
 const order = ref<Order | null>(null)
 const { supportEmail, loadShopConfig } = useShopConfig()
 const { showToast } = useToast()
+const { homePath: storefrontHomePath } = useStorefrontContext()
+const shopHomePath = computed(() => storefrontHomePath.value)
 
 const statusText = computed(() => {
   if (!order.value) return ''

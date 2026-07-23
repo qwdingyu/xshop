@@ -27,6 +27,7 @@ describe('storefront routing contract', () => {
     expect(appSource).toContain('document.title = active ? brandName : shopName.value')
     expect(headerSource).toContain("'is-telegram': isTelegram.value")
     expect(headerSource).toContain("'is-mobile': isMobile.value")
+    expect(headerSource).toContain('homePath: storefrontHomePath')
   })
 
   it('renders a controlled channel template without repeating the brand as the page heading', () => {
@@ -34,6 +35,11 @@ describe('storefront routing contract', () => {
     expect(shopSource).toContain('<h1 class="section-title">商品</h1>')
     expect(shopSource).toContain(':display-mode="storefrontTemplate"')
     expect(productCardSource).toContain("displayMode?: 'catalog' | 'compact'")
+    expect(productCardSource).toContain("displayMode.value === 'catalog' || Boolean(props.product.coverUrl)")
+    expect(productCardSource).toContain('cover-badges')
+    expect(shopSource).toContain("class=\"product-grid\"")
+    expect(shopSource).toContain("'is-compact': storefrontTemplate === 'compact'")
+    expect(shopSource).toContain('clearFilters')
     expect(adminStorefrontSource).toContain('v-model="form.templateKey"')
   })
 

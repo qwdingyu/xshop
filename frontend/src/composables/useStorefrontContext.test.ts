@@ -21,6 +21,7 @@ describe('public storefront context', () => {
     context.setStorefront(softwareStorefront)
 
     expect(useStorefrontContext().storefront.value).toEqual(softwareStorefront)
+    expect(context.homePath.value).toBe('/s/software')
   })
 
   it('clears channel branding when leaving storefront pages', () => {
@@ -28,5 +29,12 @@ describe('public storefront context', () => {
     context.clearStorefront()
 
     expect(context.storefront.value).toBeNull()
+  })
+
+  it('keeps the last channel homePath after branding is cleared', () => {
+    context.setStorefront(softwareStorefront)
+    context.clearStorefront()
+
+    expect(context.homePath.value).toBe('/s/software')
   })
 })

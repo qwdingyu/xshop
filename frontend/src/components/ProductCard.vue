@@ -9,25 +9,25 @@
     @keydown.enter="handleClick"
     @keydown.space.prevent="handleClick"
   >
-    <!-- Cover image -->
-    <div v-if="displayMode === 'catalog' || product.coverUrl" class="product-cover">
+    <!-- Cover：catalog 始终占位；compact 仅在有图时显示缩略图 -->
+    <div v-if="showCover" class="product-cover">
       <img
         v-if="product.coverUrl && !imageFailed"
         :src="product.coverUrl"
         :alt="product.title"
         loading="lazy"
+        decoding="async"
         @error="imageFailed = true"
       />
-      <div v-else class="cover-placeholder">
+      <div v-else class="cover-placeholder" aria-hidden="true">
         <span>&#x1F4E6;</span>
       </div>
-      <!-- Stock badge -->
-      <span v-if="isSoldOut" class="stock-badge empty">已售罄</span>
-      <span v-else-if="showsLowStock" class="stock-badge low">库存紧张</span>
-      <!-- Discount badge -->
-      <span v-if="(product.originalPriceCents ?? 0) > product.priceCents" class="stock-badge discount">
-        折扣
-      </span>
+      <!-- 角标叠放：库存/售罄优先左上，折扣右上，避免重叠 -->
+      <div class="cover-badges" aria-hidden="true">
+        <span v-if="isSoldOut" class="stock-badge empty">已售罄</span>
+        <span v-else-if="showsLowStock" class="stock-badge low">库存紧张</span>
+        <span v-if="hasDiscount" class="stock-badge discount">折扣</span>
+      </div>
     </div>
 
     <!-- Info -->
@@ -41,15 +41,16 @@
       </div>
       <div class="product-footer">
         <div class="product-price-block">
-          <span class="product-price">{{ displayPrice }}</span>
-          <span v-if="(product.originalPriceCents ?? 0) > product.priceCents" class="product-original-price">
+          <span class="product-price" :class="{ 'is-free': product.priceCents === 0 }">{{ displayPrice }}</span>
+          <span v-if="hasDiscount" class="product-original-price">
             {{ originalPrice }}
           </span>
         </div>
         <div class="product-status-action">
-          <span v-if="isSoldOut" class="product-stock out">已售罄</span>
-          <span v-else-if="showsLowStock" class="product-stock low">{{ stockLabel }}</span>
-          <span v-else-if="stockLabel" class="product-stock">{{ stockLabel }}</span>
+          <!-- compact 行内：售罄文案即可；catalog 封面已有角标，脚部只保留库存/限购 -->
+          <span v-if="isSoldOut && displayMode === 'compact'" class="product-stock out">已售罄</span>
+          <span v-else-if="!isSoldOut && showsLowStock" class="product-stock low">{{ stockLabel }}</span>
+          <span v-else-if="!isSoldOut && stockLabel" class="product-stock">{{ stockLabel }}</span>
           <span v-if="purchaseLimitLabel" class="product-stock limit">{{ purchaseLimitLabel }}</span>
           <span v-if="displayMode === 'compact' && !isSoldOut" class="compact-action">
             {{ product.priceCents === 0 ? '领取' : '购买' }}
@@ -83,6 +84,10 @@ watch(() => props.product.coverUrl, () => {
 const emit = defineEmits<{
   pay: [product: Product]
 }>()
+
+/** catalog 始终展示封面区；compact 仅有 coverUrl 时展示缩略图 */
+const showCover = computed(() => displayMode.value === 'catalog' || Boolean(props.product.coverUrl))
+const hasDiscount = computed(() => (props.product.originalPriceCents ?? 0) > props.product.priceCents)
 
 const displayPrice = computed(() => props.product.priceCents === 0
   ? '免费'
@@ -128,8 +133,7 @@ function handleClick() {
   transition: transform var(--duration-fast) var(--ease-out),
               box-shadow var(--duration-fast) var(--ease-out),
               border-color var(--duration-fast) var(--ease-out);
-  opacity: 0;
-  animation: fadeInUp var(--duration-slow) var(--ease-out) forwards;
+  animation: productCardEnter var(--duration-slow) var(--ease-out) both;
 }
 
 .product-card:hover:not(.out-of-stock) {
@@ -143,28 +147,61 @@ function handleClick() {
   transition-duration: 80ms;
 }
 
-.product-card.out-of-stock {
-  cursor: default;
-  opacity: 0.72;
-  animation: fadeInUp var(--duration-slow) var(--ease-out) forwards;
+.product-card:focus-visible {
+  outline: 2px solid var(--tg-btn);
+  outline-offset: 2px;
 }
 
+/* 售罄：内容降透明，避免与入场动画的 opacity 终值冲突 */
+.product-card.out-of-stock {
+  cursor: default;
+}
+
+.product-card.out-of-stock .product-cover,
+.product-card.out-of-stock .product-info {
+  opacity: 0.72;
+}
+
+@keyframes productCardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .product-card {
+    animation: none;
+  }
+}
+
+/* compact：横排列表，宽屏限制最大阅读宽度，避免一行拉满 1280px */
 .product-card.is-compact {
-  min-height: 92px;
+  min-height: 88px;
   flex-direction: row;
+  width: 100%;
+  max-width: 720px;
+  margin-inline: auto;
 }
 
 .product-card.is-compact .product-cover {
-  width: 112px;
-  flex: 0 0 112px;
-  aspect-ratio: 4 / 3;
+  width: 96px;
+  flex: 0 0 96px;
+  aspect-ratio: 1;
+  align-self: stretch;
+  min-height: 88px;
 }
 
 .product-card.is-compact .product-info {
   min-width: 0;
   flex: 1;
   justify-content: center;
-  padding: 12px 14px;
+  padding: 10px 12px;
+  gap: 4px;
 }
 
 .product-card.is-compact .product-title {
@@ -174,6 +211,15 @@ function handleClick() {
 
 .product-card.is-compact .product-desc {
   -webkit-line-clamp: 1;
+  font-size: 12px;
+}
+
+.product-card.is-compact .product-footer {
+  margin-top: 2px;
+}
+
+.product-card.is-compact .product-price {
+  font-size: 15px;
 }
 
 .product-cover {
@@ -197,32 +243,47 @@ function handleClick() {
   align-items: center;
   justify-content: center;
   font-size: 28px;
-  color: #b8c2d1;
+  color: var(--tg-hint);
+  opacity: 0.55;
+}
+
+/* 角标容器：左右分列，避免「库存紧张 + 折扣」叠在同一角 */
+.cover-badges {
+  position: absolute;
+  inset: 6px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.cover-badges .stock-badge.discount {
+  margin-left: auto;
 }
 
 .stock-badge {
-  position: absolute;
-  top: 6px;
-  right: 6px;
   padding: 2px 6px;
   border-radius: var(--r-full);
   font-size: 10px;
   font-weight: 600;
+  line-height: 1.3;
   backdrop-filter: blur(8px);
+  white-space: nowrap;
 }
 
 .stock-badge.empty {
-  background: rgba(239, 68, 68, 0.85);
+  background: color-mix(in srgb, var(--tg-destructive) 88%, transparent);
   color: #fff;
 }
 
 .stock-badge.low {
-  background: rgba(245, 158, 11, 0.85);
+  background: color-mix(in srgb, var(--admin-warning, #fbbf24) 90%, transparent);
   color: #fff;
 }
 
 .stock-badge.discount {
-  background: rgba(34, 197, 94, 0.85);
+  background: color-mix(in srgb, var(--admin-success, #6ee7b7) 78%, #0f172a);
   color: #fff;
 }
 
@@ -231,6 +292,7 @@ function handleClick() {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1;
 }
 
 .product-title {
@@ -246,7 +308,7 @@ function handleClick() {
 
 .product-desc {
   font-size: 12px;
-  color: #aab4c3;
+  color: var(--tg-hint);
   line-height: 1.35;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -257,40 +319,42 @@ function handleClick() {
 .product-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
 
 .product-tag {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  padding: 2px 7px;
   border-radius: var(--r-full);
   font-size: 10px;
-  line-height: 1.4;
-  color: #8fc5ff;
-  background: rgba(96, 165, 250, 0.16);
-  border: 0.5px solid rgba(147, 197, 253, 0.28);
+  line-height: 1.35;
+  color: var(--tg-btn);
+  background: color-mix(in srgb, var(--tg-btn) 16%, transparent);
+  border: 0.5px solid color-mix(in srgb, var(--tg-btn) 28%, transparent);
 }
 
 .product-tag-muted {
-  color: #b8c2d1;
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--tg-hint);
+  background: var(--surface);
+  border-color: var(--border);
 }
 
 .product-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 8px;
+  margin-top: auto;
 }
 
 .product-status-action {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
+  flex-wrap: wrap;
 }
 
 .compact-action {
@@ -298,60 +362,79 @@ function handleClick() {
   align-items: center;
   justify-content: center;
   min-width: 48px;
-  min-height: 28px;
-  padding: 5px 10px;
+  height: 28px;
+  padding: 0 12px;
   border-radius: var(--r-md);
   color: var(--tg-btn-text);
   background: var(--tg-btn);
   font-size: 12px;
   font-weight: 600;
+  flex-shrink: 0;
+}
+
+.product-card.is-compact:hover:not(.out-of-stock) .compact-action {
+  filter: brightness(1.08);
 }
 
 @media (max-width: 520px) {
   .product-card.is-compact .product-cover {
-    width: 88px;
-    flex-basis: 88px;
+    width: 80px;
+    flex-basis: 80px;
   }
 
   .product-card.is-compact .product-tags .product-tag-muted {
+    display: none;
+  }
+
+  .product-card.is-compact .product-tags .product-tag:nth-child(2) {
     display: none;
   }
 }
 
 .product-price-block {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .product-price {
   font-size: 16px;
   font-weight: 700;
-  color: #60a5fa;
+  color: var(--tg-btn);
   white-space: nowrap;
-  text-shadow: 0 0 12px rgba(96, 165, 250, 0.18);
+}
+
+.product-price.is-free {
+  color: var(--admin-success, #6ee7b7);
+  text-shadow: none;
 }
 
 .product-original-price {
   font-size: 11px;
-  color: #9aa4b2;
+  color: var(--tg-hint);
   text-decoration: line-through;
 }
 
 .product-stock {
-  font-size: 12px;
-  color: #b8c2d1;
+  font-size: 11px;
+  color: var(--tg-hint);
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .product-stock.out {
-  color: #ff6b6b;
+  color: var(--admin-danger, #fca5a5);
   font-weight: 600;
 }
 
 .product-stock.low {
-  color: #fbbf24;
+  color: var(--admin-warning, #fbbf24);
   font-weight: 600;
+}
+
+.product-stock.limit {
+  opacity: 0.9;
 }
 </style>

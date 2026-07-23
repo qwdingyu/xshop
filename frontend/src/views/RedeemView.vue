@@ -47,17 +47,21 @@
 
       <div v-if="resultType === 'status-success'" class="redeem-guide">
         <p>余额已绑定到该邮箱，购买商品时可选择余额支付。</p>
-        <RouterLink to="/" class="btn btn-ghost">去选购商品 →</RouterLink>
+        <RouterLink :to="shopHomePath" class="btn btn-ghost">去选购商品 →</RouterLink>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import Turnstile from '@/components/Turnstile.vue'
 import { redeemVoucher } from '@/api'
 import { useTurnstile } from '@/composables/useTurnstile'
+import { useStorefrontContext } from '@/composables/useStorefrontContext'
+
+const { homePath: storefrontHomePath } = useStorefrontContext()
+const shopHomePath = computed(() => storefrontHomePath.value)
 
 const code = ref('')
 const email = ref('')

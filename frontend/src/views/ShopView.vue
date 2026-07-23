@@ -51,30 +51,58 @@
       </div>
     </div>
 
-    <!-- Skeleton loading -->
-    <div v-if="loading" class="product-grid" :class="{ 'is-compact': storefrontTemplate === 'compact' }">
-      <div v-for="i in 6" :key="i" class="skeleton-card">
-        <div class="skeleton skeleton-cover" />
-        <div class="skeleton skeleton-line w-70" />
-        <div class="skeleton skeleton-line w-40" />
+    <!-- Skeleton loading：compact 为行骨架，catalog 为卡片骨架 -->
+    <div
+      v-if="loading"
+      class="product-grid"
+      :class="{ 'is-compact': storefrontTemplate === 'compact' }"
+      aria-busy="true"
+      aria-label="商品加载中"
+    >
+      <div
+        v-for="i in skeletonCount"
+        :key="i"
+        class="skeleton-card"
+        :class="{ 'is-compact': storefrontTemplate === 'compact' }"
+      >
+        <!-- compact 封面可选，加载期不假装有缩略图，只铺行骨架 -->
+        <div v-if="storefrontTemplate === 'catalog'" class="skeleton skeleton-cover" />
+        <div class="skeleton-body">
+          <div class="skeleton skeleton-line w-70" />
+          <div class="skeleton skeleton-line w-40" />
+        </div>
       </div>
     </div>
 
     <!-- Error state -->
-    <div v-else-if="error" class="empty-state">
-      <div class="empty-icon">&#x26A0;</div>
+    <div v-else-if="error" class="empty-state" role="alert">
+      <div class="empty-icon" aria-hidden="true">&#x26A0;</div>
       <p class="empty-text">{{ error }}</p>
-      <button class="btn btn-primary" style="margin-top:12px" @click="refresh">重试</button>
+      <button class="btn btn-primary empty-action" type="button" @click="refresh">重试</button>
     </div>
 
-    <!-- Empty state -->
+    <!-- Empty state：区分筛选无结果 vs 目录本身为空 -->
     <div v-else-if="filteredProducts.length === 0" class="empty-state">
-      <div class="empty-icon">&#x1F6D2;</div>
-      <p class="empty-text">暂无商品</p>
+      <div class="empty-icon" aria-hidden="true">&#x1F6D2;</div>
+      <p class="empty-text">{{ emptyMessage }}</p>
+      <button
+        v-if="hasActiveFilters"
+        class="btn btn-ghost empty-action"
+        type="button"
+        @click="clearFilters"
+      >
+        清除筛选
+      </button>
     </div>
 
     <!-- Product grid -->
-    <div v-else class="product-grid" :class="{ 'is-compact': storefrontTemplate === 'compact' }">
+    <div
+      v-else
+      class="product-grid"
+      :class="{ 'is-compact': storefrontTemplate === 'compact' }"
+      role="list"
+      :aria-label="storefrontTemplate === 'compact' ? '商品列表' : '商品目录'"
+    >
       <ProductCard
         v-for="p in filteredProducts"
         :key="p.id"
@@ -140,6 +168,9 @@ watch(categories, (nextCategories) => {
   }
 })
 
+const hasActiveFilters = computed(() => activeCategory.value !== null || Boolean(searchQuery.value.trim()))
+const skeletonCount = computed(() => storefrontTemplate.value === 'compact' ? 5 : 6)
+
 const filteredProducts = computed(() => {
   let result = products.value
   if (activeCategory.value !== null) {
@@ -151,6 +182,19 @@ const filteredProducts = computed(() => {
   }
   return result
 })
+
+const emptyMessage = computed(() => {
+  if (products.value.length === 0) return '暂无商品'
+  if (searchQuery.value.trim() && activeCategory.value) return '当前分类下没有匹配的商品'
+  if (searchQuery.value.trim()) return '没有匹配的商品'
+  if (activeCategory.value) return '该分类下暂无商品'
+  return '暂无商品'
+})
+
+function clearFilters() {
+  searchQuery.value = ''
+  activeCategory.value = null
+}
 
 async function loadData() {
   const requestSequence = ++catalogRequestSequence
@@ -336,14 +380,8 @@ watch(requestedStorefrontSlug, () => {
 .product-grid.is-compact {
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
-}
-
-.product-grid.is-compact .skeleton-card {
-  min-height: 92px;
-}
-
-.product-grid.is-compact .skeleton-cover {
-  display: none;
+  max-width: 720px;
+  margin-inline: auto;
 }
 
 .btn-sm {
@@ -377,7 +415,7 @@ watch(requestedStorefrontSlug, () => {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 12px;
-  color: #aab4c3;
+  color: var(--tg-hint);
   font-size: 12px;
   line-height: 1.35;
 }
@@ -407,17 +445,24 @@ watch(requestedStorefrontSlug, () => {
   border: 0.5px solid var(--border);
   border-radius: var(--r-full);
   background: transparent;
-  color: #aab4c3;
+  color: var(--tg-hint);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--duration-fast) var(--ease-out);
+  transition: color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
 }
 
 .cat-btn:hover {
   color: var(--tg-text);
   border-color: var(--border-strong);
   background: var(--surface);
+}
+
+.cat-btn:focus-visible {
+  outline: 2px solid var(--tg-btn);
+  outline-offset: 2px;
 }
 
 .cat-btn.active {
@@ -436,12 +481,13 @@ watch(requestedStorefrontSlug, () => {
   border-radius: var(--r-full);
   font-size: 11px;
   font-weight: 600;
-  color: #dbeafe;
-  background: rgba(255, 255, 255, 0.16);
+  color: color-mix(in srgb, var(--tg-btn-text) 88%, transparent);
+  background: color-mix(in srgb, var(--tg-text) 14%, transparent);
 }
 
 .cat-btn.active .cat-count {
-  background: rgba(255, 255, 255, 0.25);
+  color: var(--tg-btn-text);
+  background: color-mix(in srgb, var(--tg-btn-text) 24%, transparent);
 }
 
 /* Search */
@@ -474,16 +520,41 @@ watch(requestedStorefrontSlug, () => {
   border-radius: var(--r-lg);
   overflow: hidden;
   background: var(--tg-secondary-bg);
+  border: 0.5px solid var(--border);
+}
+
+.skeleton-card.is-compact {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  min-height: 72px;
+  max-width: 720px;
+  margin-inline: auto;
 }
 
 .skeleton-cover {
   width: 100%;
   aspect-ratio: 4 / 3;
+  border-radius: 0;
+}
+
+.skeleton-body {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+
+.skeleton-card:not(.is-compact) .skeleton-body {
+  padding: 10px 12px 12px;
 }
 
 .skeleton-line {
-  height: 14px;
-  margin: 10px 12px;
+  height: 12px;
+  margin: 0;
 }
 
 .skeleton-line.w-70 { width: 70%; }
@@ -495,17 +566,25 @@ watch(requestedStorefrontSlug, () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 20px;
+  padding: 56px 20px;
   color: var(--tg-hint);
+  text-align: center;
 }
 
 .empty-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
+  font-size: 44px;
+  margin-bottom: 10px;
   opacity: 0.5;
+  line-height: 1;
 }
 
 .empty-text {
   font-size: 15px;
+  line-height: 1.45;
+  max-width: 28em;
+}
+
+.empty-action {
+  margin-top: 14px;
 }
 </style>
