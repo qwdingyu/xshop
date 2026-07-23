@@ -98,6 +98,7 @@ import { useShopConfig } from '@/composables/useShopConfig'
 import { useToast } from '@/composables/useToast'
 import { copyText } from '@/composables/useClipboard'
 import { fieldLabel, getDeliveryEntries } from '@/composables/useDeliveryDisplay'
+import { normalizeOrderStatus, TERMINAL_ORDER_STATUSES } from '@shared/order-status'
 import type { Order } from '@/types'
 
 const route = useRoute()
@@ -109,6 +110,7 @@ const { showToast } = useToast()
 
 const statusText = computed(() => {
   if (!order.value) return ''
+  const normalized = normalizeOrderStatus(order.value.status)
   const map: Record<string, string> = {
     pending: '待支付',
     paid: '已支付，正在发卡…',
@@ -116,11 +118,10 @@ const statusText = computed(() => {
     expired: '已过期',
     failed: '失败',
     canceled: '已取消',
-    cancelled: '已取消',
     closed: '已关闭',
     refunded: '已退款',
   }
-  return map[order.value.status] || order.value.status
+  return map[normalized] || order.value.status
 })
 
 const statusIcon = computed(() => {
@@ -132,11 +133,10 @@ const statusIcon = computed(() => {
     expired: '⏰',
     failed: '✕',
     canceled: '✕',
-    cancelled: '✕',
     closed: '✕',
     refunded: '↩',
   }
-  return icons[order.value.status] || '⟳'
+  return icons[normalizeOrderStatus(order.value.status)] || '⟳'
 })
 
 const deliveryFulfillmentMode = computed(() => {
@@ -146,7 +146,7 @@ const deliveryFulfillmentMode = computed(() => {
 const isCardDelivery = computed(() => deliveryFulfillmentMode.value === 'card' || Boolean(order.value?.cards?.length))
 
 const pollableStatuses = new Set(['pending', 'paid'])
-const terminalStatuses = new Set(['issued', 'expired', 'failed', 'canceled', 'cancelled', 'closed', 'refunded'])
+const terminalStatuses = new Set(TERMINAL_ORDER_STATUSES)
 
 let orderPollTimer: ReturnType<typeof setInterval> | null = null
 let orderPollInFlight = false
@@ -195,7 +195,7 @@ async function refreshOrderStatus() {
   try {
     const res = await getPayStatus(orderPollContext.orderId, orderPollContext.token)
     order.value = buildOrderState(res)
-    if (!pollableStatuses.has(res.status)) {
+    if (!pollableStatuses.has(normalizeOrderStatus(res.status))) {
       stopOrderPolling()
     }
   } catch {
@@ -246,9 +246,10 @@ async function loadOrder() {
   try {
     const res = await getPayStatus(orderId, token)
     order.value = buildOrderState(res)
-    if (pollableStatuses.has(res.status)) {
+    const status = normalizeOrderStatus(res.status)
+    if (pollableStatuses.has(status)) {
       startOrderPolling(orderId, token)
-    } else if (terminalStatuses.has(res.status)) {
+    } else if (terminalStatuses.has(status)) {
       stopOrderPolling()
     }
   } catch (err: any) {

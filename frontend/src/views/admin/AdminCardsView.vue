@@ -46,7 +46,9 @@
       </div>
       <div v-if="selectedCount > 0" class="table-command-actions" role="status" aria-live="polite" :aria-busy="loading || batchOperating">
         <span class="selection-summary">
-          {{ batchOperating ? '正在处理…' : `已选 ${selectedCount} 张，可操作 ${selectedDeletableIds.length} 张` }}
+          {{ batchOperating
+            ? '正在处理…'
+            : `已选 ${selectedCount} 张（默认可删 ${selectedSafeDeletableIds.length}；勾选「全部删除」可扩范围）` }}
         </span>
         <button class="btn btn-ghost btn-sm" :disabled="loading || batchOperating" @click="clearSelection">清空</button>
         <button class="btn btn-ghost btn-sm" :disabled="loading || batchOperating" @click="copySelectedCards">复制所选</button>
@@ -57,8 +59,8 @@
         <button class="btn btn-danger btn-sm" :disabled="loading || batchOperating || selectedAvailableIds.length === 0" @click="batchSetStatus('disabled')">
           批量禁用（{{ selectedAvailableIds.length }}）
         </button>
-        <button class="btn btn-danger btn-sm" :disabled="loading || batchOperating || selectedDeletableIds.length === 0" @click="batchRemove">
-          批量删除（{{ selectedDeletableIds.length }}）
+        <button class="btn btn-danger btn-sm" :disabled="loading || batchOperating || selectedCount === 0" @click="batchRemove">
+          批量删除（{{ selectedCount }}）
         </button>
       </div>
     </div>
@@ -221,7 +223,15 @@
       </form>
     </AdminModal>
 
-    <ConfirmDialog v-model="confirmVisible" :message="confirmMessage" danger @confirm="onConfirm" />
+    <ConfirmDialog
+      v-model="confirmVisible"
+      :message="confirmMessage"
+      :options="confirmOptionDefs"
+      :option-values="confirmOptionValues"
+      danger
+      @confirm="onConfirm"
+      @update:option="setConfirmOption"
+    />
   </div>
 </template>
 
@@ -304,7 +314,8 @@ const selectedDisabledIds = computed(() => {
   const selected = new Set(selectedIds.value)
   return visibleItems.value.filter((item) => selected.has(item.id) && item.status === 'disabled').map((item) => item.id)
 })
-const selectedDeletableIds = computed(() => {
+/** 未勾选「全部删除」时仅允许删除可用/禁用（与后端 SAFE_CARD_DELETE_STATUSES 同步） */
+const selectedSafeDeletableIds = computed(() => {
   const selected = new Set(selectedIds.value)
   return visibleItems.value
     .filter((item) => selected.has(item.id) && canToggleStatus(item.status))
@@ -314,7 +325,28 @@ const selectedItems = computed(() => {
   const selected = new Set(selectedIds.value)
   return visibleItems.value.filter((item) => selected.has(item.id))
 })
-const { confirmVisible, confirmMessage, askConfirm, onConfirm } = useConfirmDialog()
+const CARD_DELETE_CONFIRM_OPTIONS = [
+  {
+    key: 'force',
+    label: '全部删除（含锁定中/已发卡）',
+    hint: '默认不勾选：仅删除可用与禁用卡密。勾选后删除当前选中的全部卡密。',
+  },
+  {
+    key: 'unlinkRefs',
+    label: '解绑订单引用',
+    hint: '默认不勾选：仍被订单挂着（locked/issued 或 orders.issued_card_id）的卡密会拒绝删除。勾选后清空订单上的发卡引用再删。',
+  },
+] as const
+const {
+  confirmVisible,
+  confirmMessage,
+  confirmOptionDefs,
+  confirmOptionValues,
+  askConfirm,
+  askConfirmWithOptions,
+  onConfirm,
+  setConfirmOption,
+} = useConfirmDialog()
 let loadSequence = 0
 
 async function loadData() {
@@ -483,13 +515,24 @@ async function batchSetStatus(status: 'available' | 'disabled') {
 }
 
 async function batchRemove() {
-  const ids = selectedDeletableIds.value
+  const ids = selectedItems.value.map((item) => item.id)
   if (ids.length === 0 || loading.value || batchOperating.value) return
-  if (!(await askConfirm(`确认删除选中的 ${ids.length} 张可用/禁用卡密？锁定中或已发卡卡密不会被允许删除，此操作不可恢复。`))) return
+  const safeCount = selectedSafeDeletableIds.value.length
+  const decision = await askConfirmWithOptions(
+    `确认删除选中的 ${ids.length} 张卡密？\n\n默认（两个选项都不勾）：仅删除可用/禁用且无订单引用的卡密（当前选中约 ${safeCount} 张符合默认状态）。此操作不可恢复。`,
+    { options: [...CARD_DELETE_CONFIRM_OPTIONS] },
+  )
+  if (!decision.confirmed) return
+  const force = decision.options.force === true
+  const unlinkRefs = decision.options.unlinkRefs === true
   batchOperating.value = true
   try {
-    const res = await batchDeleteAdminCards(token.value, ids)
-    showToast(`已删除 ${res.deleted} 张卡密`, 'success')
+    const res = await batchDeleteAdminCards(token.value, ids, { force, unlinkRefs })
+    const flags = [
+      force ? '全部删除' : '仅可用/禁用',
+      unlinkRefs ? '已解绑订单' : '未解绑',
+    ].join(' · ')
+    showToast(`已删除 ${res.deleted} 张卡密（${flags}）`, 'success')
     clearSelection()
     loadData()
   } catch (err: any) {

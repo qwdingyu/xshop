@@ -125,7 +125,7 @@ describe("admin-service - 订单列表核心筛选", () => {
 
     const result = await getOrderList(db, filter);
     expect(result.total).toBe(3);
-    // 应捕获到 where 条件中包含多状态 IN
+    // 应捕获到 where 条件中包含多状态 IN（展开后的 canceled/cancelled 由 real-db 筛选用例覆盖）
     expect(capturedWheres.length).toBeGreaterThanOrEqual(1);
   });
 

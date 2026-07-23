@@ -182,10 +182,32 @@ export function fetchAdminSummary(token: string): Promise<{ summary: AdminSummar
   return adminRequest(token, '/api/admin/summary')
 }
 
-export function batchDeleteAdminOrders(token: string, ids: string[]): Promise<{ deleted: number; blocked: number }> {
+export type AdminBatchDeleteOptions = {
+  /** 删除非安全集合（订单非终态 / 卡密 locked|issued） */
+  force?: boolean
+  /** 删除前解绑订单↔卡密交叉引用 */
+  unlinkRefs?: boolean
+}
+
+export type AdminBatchDeleteResult = {
+  deleted: number
+  blocked: number
+  force: boolean
+  unlinkRefs: boolean
+}
+
+export function batchDeleteAdminOrders(
+  token: string,
+  ids: string[],
+  options: AdminBatchDeleteOptions = {},
+): Promise<AdminBatchDeleteResult> {
   return adminRequest(token, '/api/admin/orders/batch-delete', {
     method: 'POST',
-    body: JSON.stringify({ ids }),
+    body: JSON.stringify({
+      ids,
+      force: options.force === true,
+      unlinkRefs: options.unlinkRefs === true,
+    }),
   })
 }
 
@@ -368,10 +390,18 @@ export function batchDisableAdminCards(token: string, body: AdminBatchDisablePay
   })
 }
 
-export function batchDeleteAdminCards(token: string, ids: string[]): Promise<{ deleted: number; blocked: number }> {
+export function batchDeleteAdminCards(
+  token: string,
+  ids: string[],
+  options: AdminBatchDeleteOptions = {},
+): Promise<AdminBatchDeleteResult> {
   return adminRequest(token, '/api/admin/cards/batch-delete', {
     method: 'POST',
-    body: JSON.stringify({ ids }),
+    body: JSON.stringify({
+      ids,
+      force: options.force === true,
+      unlinkRefs: options.unlinkRefs === true,
+    }),
   })
 }
 

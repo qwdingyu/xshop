@@ -88,6 +88,8 @@ const files = {
   paymentComposable: read("frontend/src/composables/usePayment.ts"),
   sharedMoney: read("shared/money.ts"),
   sharedMoneyTest: read("shared/money.test.ts"),
+  sharedOrderStatus: read("shared/order-status.ts"),
+  sharedOrderStatusTest: read("shared/order-status.test.ts"),
   paymentAdapter: read("src/services/payments/index.ts"),
   frontendEntry: read("frontend/src/main.ts"),
   adminModal: read("frontend/src/components/AdminModal.vue"),
@@ -402,23 +404,39 @@ const checks = [
     "internal direct orders must enforce transactional purchase limits and coupon consumption while keeping email-only delivery plaintext out of API results",
   ],
   [
-    files.checkoutFlow.includes("res.status === 'canceled'") &&
-      files.checkoutFlow.includes("res.status === 'closed'") &&
-      files.checkoutFlow.includes("res.status === 'refunded'") &&
-      files.formatUtil.includes("canceled: '已取消'") &&
+    files.sharedOrderStatus.includes('if (raw === "cancelled") return "canceled"') &&
+      files.sharedOrderStatus.includes("SAFE_DELETE_ORDER_STATUSES") &&
+      files.sharedOrderStatus.includes("expandOrderStatusFilter") &&
+      files.sharedOrderStatusTest.includes("normalizes cancelled to canceled") &&
+      files.sharedOrderStatusTest.includes("expands canceled filter to include legacy cancelled spelling") &&
+      files.checkoutFlow.includes("normalizeOrderStatus") &&
+      files.checkoutFlow.includes("=== 'canceled'") &&
+      files.checkoutFlow.includes("=== 'closed'") &&
+      files.checkoutFlow.includes("'refunded'") &&
+      files.formatUtil.includes("orderStatusLabel") &&
+      files.formatUtil.includes("@shared/order-status") &&
       files.orderView.includes("closed: '已关闭'") &&
       files.orderView.includes("refunded: '已退款'") &&
+      files.orderView.includes("normalizeOrderStatus") &&
+      files.orderView.includes("TERMINAL_ORDER_STATUSES") &&
       files.adminOrdersView.includes("closed: '已关闭'") &&
       files.adminOrdersView.includes("refunded: '已退款'") &&
-      files.adminOrdersView.includes("['failed', 'canceled', 'closed', 'expired', 'refunded']") &&
+      files.adminOrdersView.includes("ABNORMAL_ORDER_STATUSES") &&
+      files.adminOrdersView.includes("isSafeDeleteOrderStatus") &&
+      files.adminOrdersView.includes("normalizeOrderStatus") &&
       files.adminOrdersView.includes("currentOrder.events") &&
       files.adminOrdersView.includes("notification_failed: '通知失败'") &&
+      files.adminService.includes("expandOrderStatusFilter") &&
+      files.adminService.includes("isSafeDeleteOrderStatus") &&
+      files.adminService.includes("原关联订单已删除") &&
+      files.adminService.includes("eq(balanceTransactions.referenceType, \"order\")") &&
       files.adminService.includes(".from(orderEvents)") &&
       files.adminService.includes(".limit(50)") &&
       files.adminServiceTest.includes("订单存在时应包含 items、cards 和最近事件聚合字段") &&
-      files.frontendTypes.includes("export type OrderStatus") &&
+      files.adminServiceRealDbTest.includes("normalizes cancelled spelling for safe delete and clears balance ledger order refs") &&
+      files.frontendTypes.includes("export type { OrderStatus }") &&
       !files.frontendApi.includes("deliveryJson?: string"),
-    "frontend polling, customer order detail, and admin abnormal-order views must consume terminal states; admin order detail must expose bounded operational events; public API types must not advertise raw deliveryJson",
+    "shared order-status must normalize cancelled→canceled; frontend polling/detail/admin abnormal views consume it; delete clears balance ledger order refs; admin order detail exposes bounded events; public API types must not advertise raw deliveryJson",
   ],
   [
     files.payModal.includes("未配置<br />收款码") &&
@@ -727,10 +745,10 @@ const checks = [
   [
     files.adminSystemConfigRoute.includes('post("/clear-business-data"') &&
       files.adminSystemConfigRoute.includes("clearBusinessDataPreservingConfig") &&
-      files.adminSystemConfigRoute.includes("清除所有业务数据") &&
       files.adminSystemConfigRoute.includes("preserveConfigAndSystemParams") &&
       files.adminService.includes("clearBusinessDataPreservingConfig") &&
-      files.adminService.includes("payment_provider:*") &&
+      files.adminService.includes("清除所有业务数据") &&
+      files.adminService.includes("payment_provider:") &&
       files.adminService.includes("rate_limit_windows") &&
       files.adminService.includes("idempotency_keys") &&
       files.adminService.includes("旧 admin_audit_logs") &&
@@ -738,7 +756,7 @@ const checks = [
       files.adminServiceRealDbTest.includes("clears business and transient tables while preserving configuration tables") &&
       files.adminServiceRealDbTest.includes("payment_provider:easypay") &&
       files.adminServiceRealDbTest.includes("expect(result.tables.admin_audit_logs).toBe(1)") &&
-      files.adminSystemConfigRouteTest.includes("clears business data only with explicit preservation acknowledgement"),
+      files.adminSystemConfigRouteTest.includes("clears business data only with matching profile confirmation"),
     "admin business-data clear must require explicit confirmation, preserve config/payment/category/API/migration tables, clear transient/old audit state, and keep real-db coverage",
   ],
   [

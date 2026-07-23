@@ -96,12 +96,14 @@
           待交付 {{ items.filter((item) => item.status === 'paid').length }}
         </button>
         <button class="action-chip" @click="switchTab('abnormal')">
-          售后异常 {{ items.filter((item) => ['failed', 'canceled', 'closed', 'expired', 'refunded'].includes(item.status || '')).length }}
+          售后异常 {{ items.filter((item) => ABNORMAL_ORDER_STATUS_SET.has(normalizeOrderStatus(item.status))).length }}
         </button>
       </div>
       <div v-if="selectedCount > 0" class="table-command-actions" role="status" aria-live="polite" :aria-busy="loading || batchOperating">
         <span class="selection-summary">
-          {{ batchOperating ? `处理中 ${batchCompleted}/${batchTotal}` : `已选 ${selectedCount} 个，可删除 ${selectedDeletableOrders.length} 个` }}
+          {{ batchOperating
+            ? `处理中 ${batchCompleted}/${batchTotal}`
+            : `已选 ${selectedCount} 个（默认可删 ${selectedSafeDeletableOrders.length}；勾选「全部删除」可扩范围）` }}
         </span>
         <button class="btn btn-ghost btn-sm" :disabled="loading || batchOperating" @click="clearSelection">清空</button>
         <button class="btn btn-ghost btn-sm" :disabled="loading || batchOperating" @click="copySelectedOrders">复制所选</button>
@@ -110,8 +112,8 @@
         <button class="btn btn-danger btn-sm" :disabled="loading || batchOperating || selectedCancelableOrders.length === 0" @click="batchCancelPending">
           取消待支付（{{ selectedCancelableOrders.length }}）
         </button>
-        <button class="btn btn-danger btn-sm" :disabled="loading || batchOperating || selectedDeletableOrders.length === 0" @click="batchRemoveOrders">
-          批量删除（{{ selectedDeletableOrders.length }}）
+        <button class="btn btn-danger btn-sm" :disabled="loading || batchOperating || selectedCount === 0" @click="batchRemoveOrders">
+          批量删除（{{ selectedCount }}）
         </button>
       </div>
     </div>
@@ -363,7 +365,15 @@
       </form>
     </AdminModal>
 
-    <ConfirmDialog v-model="confirmVisible" :message="confirmMessage" @confirm="onConfirm" />
+    <ConfirmDialog
+      v-model="confirmVisible"
+      :message="confirmMessage"
+      :options="confirmOptionDefs"
+      :option-values="confirmOptionValues"
+      danger
+      @confirm="onConfirm"
+      @update:option="setConfirmOption"
+    />
   </div>
 </template>
 
@@ -377,11 +387,19 @@ import { useTablePagination } from '@/composables/useTablePagination'
 import { useAdminAuth } from '@/composables/useAdminAuth'
 import { useTableSelection } from '@/composables/useTableSelection'
 import { useAdminBatchOperation } from '@/composables/useAdminBatchOperation'
-import { formatDate } from '@/composables/useFormat'
+import { formatDate, statusLabel } from '@/composables/useFormat'
 import { copyText, writeClipboardText } from '@/composables/useClipboard'
 import { fieldLabel, getDeliveryEntries } from '@/composables/useDeliveryDisplay'
 import { downloadCsv } from '@/lib/csv-export'
 import { formatMoney } from '@shared/money'
+import {
+  ABNORMAL_ORDER_STATUSES,
+  isSafeDeleteOrderStatus,
+  normalizeOrderStatus,
+} from '@shared/order-status'
+
+const ABNORMAL_ORDER_STATUS_SET = new Set<string>(ABNORMAL_ORDER_STATUSES)
+const ABNORMAL_ORDER_STATUS_FILTER = [...ABNORMAL_ORDER_STATUSES]
 import AdminPagination from '@/components/AdminPagination.vue'
 import AdminModal from '@/components/AdminModal.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -463,9 +481,22 @@ const selectedOrders = computed(() => {
   return items.value.filter((item) => selected.has(item.id))
 })
 const selectedCancelableOrders = computed(() => selectedOrders.value.filter((item) => item.status === 'pending'))
-const selectedDeletableOrders = computed(() => selectedOrders.value.filter((item) => (
-  ['failed', 'canceled', 'cancelled', 'closed', 'expired'].includes(item.status || '')
+/** 未勾选「全部删除」时后端允许的安全终态（与 shared SAFE_DELETE_ORDER_STATUSES 同步，含历史 cancelled） */
+const selectedSafeDeletableOrders = computed(() => selectedOrders.value.filter((item) => (
+  isSafeDeleteOrderStatus(item.status)
 )))
+const ORDER_DELETE_CONFIRM_OPTIONS = [
+  {
+    key: 'force',
+    label: '全部删除（含进行中/已支付/已发货等非终态）',
+    hint: '默认不勾选：仅删除失败/取消/关闭/过期订单。勾选后删除当前选中的全部订单。',
+  },
+  {
+    key: 'unlinkRefs',
+    label: '解绑卡密引用',
+    hint: '默认不勾选：仍挂着锁定/已发卡密的订单会拒绝删除。勾选后：锁定卡回库存，已发卡仅清订单关联（不重卖）。',
+  },
+] as const
 let loadSequence = 0
 
 // 从路由 query 初始化筛选条件（支持从 Dashboard 跳转）
@@ -490,7 +521,7 @@ function initFilterFromRoute() {
     } else if (activeTab.value === 'paid') {
       filter.status = 'paid'
     } else if (activeTab.value === 'abnormal') {
-      filter.status = ['failed', 'canceled', 'closed', 'expired', 'refunded']
+      filter.status = ABNORMAL_ORDER_STATUS_FILTER
     }
   }
   if (query.status) {
@@ -532,7 +563,7 @@ function switchTab(tab: TabKey) {
   } else if (tab === 'paid') {
     filter.status = 'paid'
   } else if (tab === 'abnormal') {
-    filter.status = ['failed', 'canceled', 'closed', 'expired', 'refunded']
+    filter.status = ABNORMAL_ORDER_STATUS_FILTER
   }
   searchData()
 }
@@ -550,7 +581,16 @@ const tabHint = computed(() => {
 const detailVisible = ref(false)
 const currentOrder = ref<AdminOrder | null>(null)
 
-const { confirmVisible, confirmMessage, askConfirm, onConfirm } = useConfirmDialog()
+const {
+  confirmVisible,
+  confirmMessage,
+  confirmOptionDefs,
+  confirmOptionValues,
+  askConfirm,
+  askConfirmWithOptions,
+  onConfirm,
+  setConfirmOption,
+} = useConfirmDialog()
 
 // 客服动作：打开菜单（后续可扩展为下拉或弹窗）
 function openCustomerServiceMenu(orderId: string) {
@@ -828,16 +868,31 @@ async function batchResendEmail() {
 }
 
 async function batchRemoveOrders() {
-  const orders = selectedDeletableOrders.value
+  const orders = selectedOrders.value
   if (orders.length === 0 || loading.value || batchOperating.value) return
-  if (!(await askConfirm(`确认永久删除选中的 ${orders.length} 个失败/取消/关闭/过期订单？相关明细、事件和邮件记录也会删除，此操作不可恢复。`))) return
+  const safeCount = selectedSafeDeletableOrders.value.length
+  const decision = await askConfirmWithOptions(
+    `确认永久删除选中的 ${orders.length} 个订单？\n\n默认（两个选项都不勾）：仅删除失败/取消/关闭/过期，且无卡密关联的订单（当前选中约 ${safeCount} 个符合默认条件）。相关明细、事件和邮件记录会一并删除，此操作不可恢复。`,
+    { options: [...ORDER_DELETE_CONFIRM_OPTIONS] },
+  )
+  if (!decision.confirmed) return
+  const force = decision.options.force === true
+  const unlinkRefs = decision.options.unlinkRefs === true
   batchOperating.value = true
   batchCompleted.value = 0
   batchTotal.value = orders.length
   try {
-    const result = await batchDeleteAdminOrders(token.value, orders.map((order) => order.id))
+    const result = await batchDeleteAdminOrders(
+      token.value,
+      orders.map((order) => order.id),
+      { force, unlinkRefs },
+    )
     batchCompleted.value = result.deleted
-    showToast(`已删除 ${result.deleted} 个订单`, 'success')
+    const flags = [
+      force ? '全部删除' : '仅终态',
+      unlinkRefs ? '已解绑卡密' : '未解绑',
+    ].join(' · ')
+    showToast(`已删除 ${result.deleted} 个订单（${flags}）`, 'success')
     await loadData()
   } catch (err: any) {
     showToast(err.message || '批量删除失败', 'error')
@@ -950,26 +1005,14 @@ function statusClass(status?: string) {
     expired: 'tag-muted',
     failed: 'tag-danger',
     canceled: 'tag-muted',
-    cancelled: 'tag-muted',
     closed: 'tag-muted',
     refunded: 'tag-danger',
   }
-  return map[status || ''] || 'tag-muted'
+  return map[normalizeOrderStatus(status)] || 'tag-muted'
 }
 
 function statusText(status?: string) {
-  const map: Record<string, string> = {
-    pending: '待支付',
-    paid: '已支付',
-    issued: '已发货',
-    expired: '已过期',
-    failed: '失败',
-    canceled: '已取消',
-    cancelled: '已取消',
-    closed: '已关闭',
-    refunded: '已退款',
-  }
-  return map[status || ''] || status || '-'
+  return statusLabel(status || '')
 }
 
 function eventTypeText(type: string) {
@@ -987,6 +1030,7 @@ function eventTypeText(type: string) {
     expired: '已过期',
     canceled: '已取消',
     closed: '已关闭',
+    refunded: '已退款',
   }
   return map[type] || fulfillmentProgressEventLabel(type) || type
 }

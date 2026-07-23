@@ -11,11 +11,16 @@
  * 仅在 ORM 不支持的场景（UNION ALL、UPDATE...RETURNING 原子操作）使用 db.run(sql)。
  */
 
-import { withDbTransaction, type DbType } from "../db/client";
+import { withDbTransaction, type DbType, type DbWriteScope } from "../db/client";
 import { FULFILLMENT_MODES } from "../bindings";
 import { parseFulfillmentInputSnapshot, type FulfillmentInputType } from "../../shared/fulfillment-input";
 import { fulfillmentProgressEventType, type FulfillmentProgressMetadata } from "../../shared/fulfillment-progress";
 import type { DeliveryVisibility, StockDisplayMode } from "../../shared/product-contract";
+import {
+  expandOrderStatusFilter,
+  isSafeDeleteOrderStatus,
+  SAFE_DELETE_ORDER_STATUSES,
+} from "../../shared/order-status";
 import {
   products,
   productCategories,
@@ -297,8 +302,10 @@ type SharedOrderFilter = {
 function buildOrderConditions(filter: SharedOrderFilter): SQL<unknown>[] {
   const conditions: SQL<unknown>[] = [];
   const statuses = Array.isArray(filter.status) ? filter.status : filter.status ? [filter.status] : [];
-  if (statuses.length > 0) {
-    conditions.push(inArray(orders.status, statuses));
+  // 筛选时展开 canceled/cancelled，避免历史英式拼写被漏查；规范写入仍是 canceled。
+  const expandedStatuses = expandOrderStatusFilter(statuses);
+  if (expandedStatuses.length > 0) {
+    conditions.push(inArray(orders.status, expandedStatuses));
   }
   if (filter.productId) conditions.push(eq(orders.productId, filter.productId));
   if (filter.q) {
@@ -567,50 +574,209 @@ export async function getOrderList(
   return { total, orders: results as unknown as Record<string, unknown>[] };
 }
 
-const DELETABLE_ORDER_STATUSES = ["failed", "canceled", "cancelled", "closed", "expired"];
+/** 与 shared SAFE_DELETE_ORDER_STATUSES 对齐；DB 删除 WHERE 用 expand 覆盖历史 cancelled。 */
+const DELETABLE_ORDER_STATUSES = expandOrderStatusFilter([...SAFE_DELETE_ORDER_STATUSES]);
+const SAFE_CARD_DELETE_STATUSES = ["available", "disabled"] as const;
+
+/**
+ * 批量删除选项（两个开关彼此独立，默认均为 false → 与历史安全行为一致）：
+ *
+ * - force：是否允许删除「非安全集合」
+ *   - 订单：非失败/取消/关闭/过期
+ *   - 卡密：锁定中 / 已发卡
+ * - unlinkRefs：是否在删除前主动解绑订单↔卡密交叉引用
+ *   - 删订单：locked 卡回库并清 locked_order_id；issued 卡仅清 issued_order_id（不回库）
+ *   - 删卡密：清空 orders.issued_card_id；卡自身 order 字段随行删除
+ *
+ * 组合语义（有阻则整批不删，保持历史 all-or-nothing）：
+ * 1. force=0 unlink=0 — 仅安全集合，且无交叉引用
+ * 2. force=0 unlink=1 — 仅安全集合，但可先解绑再删（例如过期订单仍挂着 locked 卡）
+ * 3. force=1 unlink=0 — 任意状态，但仍要求无交叉引用，否则 409
+ * 4. force=1 unlink=1 — 任意状态 + 先解绑再删
+ */
+export type BatchDeleteOptions = {
+  force?: boolean;
+  unlinkRefs?: boolean;
+};
+
+export type BatchDeleteResult = {
+  deleted: number;
+  blocked: number;
+  force: boolean;
+  unlinkRefs: boolean;
+};
+
+async function unlinkOrderCardRefs(
+  tx: DbWriteScope,
+  orderIds: string[],
+): Promise<void> {
+  if (orderIds.length === 0) return;
+
+  // 锁定中：回库存（测试/运维清单后库存应可再售）
+  await tx
+    .update(cards)
+    .set({
+      status: "available",
+      lockedOrderId: null,
+      lockExpiresAt: null,
+    })
+    .where(and(
+      inArray(cards.lockedOrderId, orderIds),
+      eq(cards.status, "locked"),
+    ));
+
+  // 兜底：非 locked 状态仍写着 locked_order_id 的脏数据只清引用
+  await tx
+    .update(cards)
+    .set({
+      lockedOrderId: null,
+      lockExpiresAt: null,
+    })
+    .where(inArray(cards.lockedOrderId, orderIds));
+
+  // 已发卡：只解绑订单关联，不把已售密改回 available（禁止重卖）
+  await tx
+    .update(cards)
+    .set({
+      issuedOrderId: null,
+    })
+    .where(inArray(cards.issuedOrderId, orderIds));
+
+  // 单向引用兜底：orders.issued_card_id 指向卡，但 cards.issued_order_id 已空/不一致时，
+  // 仍须切断卡上可能残留的 locked 字段；issued 状态保持 issued（禁止重卖）。
+  const issuedCardRows = await tx
+    .select({ issuedCardId: orders.issuedCardId })
+    .from(orders)
+    .where(inArray(orders.id, orderIds));
+  const issuedCardIds = Array.from(new Set(
+    issuedCardRows
+      .map((row) => row.issuedCardId)
+      .filter((id): id is string => Boolean(id)),
+  ));
+  if (issuedCardIds.length > 0) {
+    await tx
+      .update(cards)
+      .set({
+        lockedOrderId: null,
+        lockExpiresAt: null,
+        issuedOrderId: null,
+      })
+      .where(inArray(cards.id, issuedCardIds));
+  }
+}
+
+async function deleteOrderDependents(
+  tx: DbWriteScope,
+  orderIds: string[],
+): Promise<void> {
+  if (orderIds.length === 0) return;
+  await tx.delete(orderEvents).where(inArray(orderEvents.orderId, orderIds));
+  await tx.delete(orderItems).where(inArray(orderItems.orderId, orderIds));
+  await tx.delete(emailLogs).where(inArray(emailLogs.orderId, orderIds));
+  await tx.delete(referralEvents).where(inArray(referralEvents.orderId, orderIds));
+  // card_logs.order_id 无 FK，删单时清掉避免脏引用
+  await tx.delete(cardLogs).where(inArray(cardLogs.orderId, orderIds));
+
+  // 余额流水无 FK，但 order_spend/refund 等会挂 reference_type=order + reference_id=orderId。
+  // 删单后若保留悬空 reference_id，后台按订单号筛流水会误命中「幽灵订单」。
+  // 策略：清空 reference 字段，保留流水本行（账本金额仍可对，只是不再链到已删订单）。
+  // 仅切断 reference_type=order，绝不碰 voucher/recharge/admin 等其它引用。
+  await tx
+    .update(balanceTransactions)
+    .set({
+      referenceType: "",
+      referenceId: "",
+      note: sql`CASE
+        WHEN trim(coalesce(${balanceTransactions.note}, '')) = ''
+          THEN '原关联订单已删除'
+        WHEN ${balanceTransactions.note} LIKE '%原关联订单已删除%'
+          THEN ${balanceTransactions.note}
+        ELSE ${balanceTransactions.note} || '（原关联订单已删除）'
+      END`,
+    })
+    .where(and(
+      eq(balanceTransactions.referenceType, "order"),
+      inArray(balanceTransactions.referenceId, orderIds),
+    ));
+}
 
 export async function batchDeleteOrders(
   db: DbType,
   ids: string[],
-): Promise<{ deleted: number; blocked: number }> {
+  options: BatchDeleteOptions = {},
+): Promise<BatchDeleteResult> {
+  const force = options.force === true;
+  const unlinkRefs = options.unlinkRefs === true;
   const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
-  if (uniqueIds.length === 0) return { deleted: 0, blocked: 0 };
+  if (uniqueIds.length === 0) {
+    return { deleted: 0, blocked: 0, force, unlinkRefs };
+  }
 
   return withDbTransaction(db, async (tx) => {
     const existing = await tx
       .select({ id: orders.id, status: orders.status })
       .from(orders)
       .where(inArray(orders.id, uniqueIds));
-    const referencedCards = await tx
-      .select({ lockedOrderId: cards.lockedOrderId, issuedOrderId: cards.issuedOrderId })
-      .from(cards)
-      .where(or(
-        inArray(cards.lockedOrderId, uniqueIds),
-        inArray(cards.issuedOrderId, uniqueIds),
-      ));
-    const referencedOrderIds = new Set(referencedCards.flatMap((row) => (
-      [row.lockedOrderId, row.issuedOrderId].filter((id): id is string => Boolean(id))
-    )));
-    const blocked = existing.filter((row) => (
-      !DELETABLE_ORDER_STATUSES.includes(row.status) || referencedOrderIds.has(row.id)
-    )).length;
-    if (blocked > 0) return { deleted: 0, blocked };
+    if (existing.length === 0) {
+      return { deleted: 0, blocked: 0, force, unlinkRefs };
+    }
 
-    const deletableIds = existing.map((row) => row.id);
-    if (deletableIds.length === 0) return { deleted: 0, blocked: 0 };
+    // 1) 状态门槛：未 force 时，非安全终态整批拒绝（cancelled 归一到 canceled 再判）
+    if (!force) {
+      const statusBlocked = existing.filter((row) => !isSafeDeleteOrderStatus(row.status)).length;
+      if (statusBlocked > 0) {
+        return { deleted: 0, blocked: statusBlocked, force, unlinkRefs };
+      }
+    }
 
-    await tx.delete(orderEvents).where(inArray(orderEvents.orderId, deletableIds));
-    await tx.delete(orderItems).where(inArray(orderItems.orderId, deletableIds));
-    await tx.delete(emailLogs).where(inArray(emailLogs.orderId, deletableIds));
-    await tx.delete(referralEvents).where(inArray(referralEvents.orderId, deletableIds));
-    const result = await tx
-      .delete(orders)
-      .where(and(
-        inArray(orders.id, deletableIds),
-        inArray(orders.status, DELETABLE_ORDER_STATUSES),
-      ));
+    const candidateIds = existing.map((row) => row.id);
 
-    return { deleted: result.rowsAffected ?? deletableIds.length, blocked: 0 };
+    // 2) 交叉引用门槛：未 unlink 时，仍挂卡密的订单拒绝
+    //    双向检查：cards → order 与 orders.issued_card_id → cards
+    if (!unlinkRefs) {
+      const referencedCards = await tx
+        .select({ lockedOrderId: cards.lockedOrderId, issuedOrderId: cards.issuedOrderId })
+        .from(cards)
+        .where(or(
+          inArray(cards.lockedOrderId, candidateIds),
+          inArray(cards.issuedOrderId, candidateIds),
+        ));
+      const referencedOrderIds = new Set(referencedCards.flatMap((row) => (
+        [row.lockedOrderId, row.issuedOrderId].filter((id): id is string => Boolean(id))
+      )));
+      const ordersWithIssuedCard = await tx
+        .select({ id: orders.id })
+        .from(orders)
+        .where(and(
+          inArray(orders.id, candidateIds),
+          sql`${orders.issuedCardId} IS NOT NULL AND ${orders.issuedCardId} != ''`,
+        ));
+      for (const row of ordersWithIssuedCard) referencedOrderIds.add(row.id);
+      const refBlocked = candidateIds.filter((id) => referencedOrderIds.has(id)).length;
+      if (refBlocked > 0) {
+        return { deleted: 0, blocked: refBlocked, force, unlinkRefs };
+      }
+    } else {
+      await unlinkOrderCardRefs(tx, candidateIds);
+    }
+
+    await deleteOrderDependents(tx, candidateIds);
+
+    const result = force
+      ? await tx.delete(orders).where(inArray(orders.id, candidateIds))
+      : await tx
+        .delete(orders)
+        .where(and(
+          inArray(orders.id, candidateIds),
+          inArray(orders.status, DELETABLE_ORDER_STATUSES),
+        ));
+
+    return {
+      deleted: result.rowsAffected ?? candidateIds.length,
+      blocked: 0,
+      force,
+      unlinkRefs,
+    };
   });
 }
 
@@ -1077,23 +1243,89 @@ export async function batchDisableCards(
 export async function batchDeleteCards(
   db: DbType,
   ids: string[],
-): Promise<{ deleted: number; blocked: number }> {
+  options: BatchDeleteOptions = {},
+): Promise<BatchDeleteResult> {
+  const force = options.force === true;
+  const unlinkRefs = options.unlinkRefs === true;
   const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
-  if (uniqueIds.length === 0) return { deleted: 0, blocked: 0 };
-
-  const existing = await db
-    .select({ id: cards.id, status: cards.status })
-    .from(cards)
-    .where(inArray(cards.id, uniqueIds));
-  const protectedCount = existing.filter((row) => row.status === "locked" || row.status === "issued").length;
-  if (protectedCount > 0) {
-    return { deleted: 0, blocked: protectedCount };
+  if (uniqueIds.length === 0) {
+    return { deleted: 0, blocked: 0, force, unlinkRefs };
   }
 
-  const result = await db
-    .delete(cards)
-    .where(and(inArray(cards.id, uniqueIds), inArray(cards.status, ["available", "disabled"])));
-  return { deleted: result.rowsAffected ?? 0, blocked: 0 };
+  return withDbTransaction(db, async (tx) => {
+    const existing = await tx
+      .select({
+        id: cards.id,
+        status: cards.status,
+        lockedOrderId: cards.lockedOrderId,
+        issuedOrderId: cards.issuedOrderId,
+      })
+      .from(cards)
+      .where(inArray(cards.id, uniqueIds));
+    if (existing.length === 0) {
+      return { deleted: 0, blocked: 0, force, unlinkRefs };
+    }
+
+    // 1) 状态门槛：未 force 时 locked/issued 整批拒绝
+    if (!force) {
+      const statusBlocked = existing.filter((row) => (
+        row.status === "locked" || row.status === "issued"
+      )).length;
+      if (statusBlocked > 0) {
+        return { deleted: 0, blocked: statusBlocked, force, unlinkRefs };
+      }
+    }
+
+    const candidateIds = existing.map((row) => row.id);
+
+    // 2) 交叉引用门槛：未 unlink 时，订单仍挂着这些卡密则拒绝
+    //    - cards.locked_order_id / issued_order_id 非空
+    //    - 或 orders.issued_card_id 指向候选卡
+    // blocked 始终按「受阻的卡密张数」计，避免用订单数误导 UI/错误文案。
+    if (!unlinkRefs) {
+      const blockedCardIds = new Set(
+        existing
+          .filter((row) => Boolean(row.lockedOrderId) || Boolean(row.issuedOrderId))
+          .map((row) => row.id),
+      );
+
+      const orderRefs = await tx
+        .select({ issuedCardId: orders.issuedCardId })
+        .from(orders)
+        .where(inArray(orders.issuedCardId, candidateIds));
+      for (const row of orderRefs) {
+        if (row.issuedCardId) blockedCardIds.add(row.issuedCardId);
+      }
+
+      if (blockedCardIds.size > 0) {
+        return { deleted: 0, blocked: blockedCardIds.size, force, unlinkRefs };
+      }
+    } else {
+      // 切断订单 → 卡密 的 issued_card_id；卡行上的 order 字段随 DELETE 消失
+      await tx
+        .update(orders)
+        .set({ issuedCardId: null })
+        .where(inArray(orders.issuedCardId, candidateIds));
+    }
+
+    await tx.delete(cardLogs).where(inArray(cardLogs.cardId, candidateIds));
+
+    const result = force
+      ? await tx.delete(cards).where(inArray(cards.id, candidateIds))
+      : await tx
+        .delete(cards)
+        .where(and(
+          inArray(cards.id, candidateIds),
+          inArray(cards.status, [...SAFE_CARD_DELETE_STATUSES]),
+        ));
+
+    return {
+      deleted: result.rowsAffected ?? candidateIds.length,
+      blocked: 0,
+      force,
+      unlinkRefs,
+    };
+  });
 }
 
 // ── G9: 批次列表 ──────────────────────────────────

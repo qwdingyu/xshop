@@ -2505,6 +2505,30 @@ describe("POST /pay/offline/cancel", () => {
     expect(issueServiceMocks.releaseLockedCardByOrder).not.toHaveBeenCalled();
     expect(auditServiceMocks.writeOrderEvent).not.toHaveBeenCalled();
   });
+
+  it("treats legacy cancelled spelling as already canceled (idempotent no-op)", async () => {
+    const { app } = createOfflineCancelApp({
+      id: "66666666-6666-4666-8666-666666666666",
+      status: "cancelled",
+      paymentMethod: "offline",
+      paymentRef: "",
+    });
+
+    const res = await app.request("/api/pay/offline/cancel", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify({
+        orderId: "66666666-6666-4666-8666-666666666666",
+        orderToken: "mock-order-token",
+      }),
+    }, {});
+    const body = await res.json() as { ok: boolean; canceled: boolean; releasedCards: number };
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, canceled: true, releasedCards: 0 });
+    expect(issueServiceMocks.releaseLockedCardByOrder).not.toHaveBeenCalled();
+    expect(auditServiceMocks.writeOrderEvent).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /pay/offline/confirm", () => {
@@ -3128,6 +3152,39 @@ describe("ALL /pay/callback/:provider", () => {
     expect(auditServiceMocks.writeOrderEvent).toHaveBeenCalledWith(
       expect.anything(),
       "order-canceled",
+      "callback_rejected",
+      "订单已取消，拒绝回调",
+      { status: "canceled" },
+    );
+  });
+
+  it("rejects callbacks for legacy cancelled spelling the same as canceled", async () => {
+    mockVerifiedCallback({
+      orderNo: "PCANCELLED001",
+      amountCents: 1200,
+      providerTradeNo: "trade-cancelled-legacy",
+      paidAt: new Date().toISOString(),
+    });
+    const { app } = createCallbackApp({
+      id: "order-cancelled-legacy",
+      status: "cancelled",
+      productId: "prod-1",
+      buyerEmail: "buyer@example.com",
+      amountCents: 1200,
+    });
+
+    const res = await app.request(
+      "/api/pay/callback/easypay?out_trade_no=PCANCELLED001&trade_status=TRADE_SUCCESS",
+      {},
+      { CREDENTIALS_ENCRYPTION_KEY: "test-key" },
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.text()).toBe("fail");
+    expect(orderServiceMocks.markPaidAndIssue).not.toHaveBeenCalled();
+    expect(auditServiceMocks.writeOrderEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      "order-cancelled-legacy",
       "callback_rejected",
       "订单已取消，拒绝回调",
       { status: "canceled" },

@@ -166,8 +166,8 @@ beforeEach(() => {
   duplicateProduct.mockResolvedValue("copied-product");
   getMergedLogs.mockResolvedValue({ total: 0, logs: [] });
   getEmailLogList.mockResolvedValue({ total: 0, results: [], snapshotAt: "", nextCursor: "", hasMore: false });
-  batchDeleteOrders.mockResolvedValue({ deleted: 0, blocked: 0 });
-  batchDeleteCards.mockResolvedValue({ deleted: 0, blocked: 0 });
+  batchDeleteOrders.mockResolvedValue({ deleted: 0, blocked: 0, force: false, unlinkRefs: false });
+  batchDeleteCards.mockResolvedValue({ deleted: 0, blocked: 0, force: false, unlinkRefs: false });
   batchDeleteEmailLogs.mockResolvedValue({ deleted: 0 });
   batchDeleteMergedLogs.mockResolvedValue({ deleted: 0, request: 0, admin: 0 });
   clearAllMergedLogs.mockResolvedValue({ deleted: 0, request: 0, admin: 0, retainedAuditId: "audit-clear" });
@@ -632,7 +632,7 @@ describe("adminRoute cards endpoint", () => {
   });
 
   it("deletes selected available or disabled cards through the batch endpoint", async () => {
-    batchDeleteCards.mockResolvedValueOnce({ deleted: 2, blocked: 0 });
+    batchDeleteCards.mockResolvedValueOnce({ deleted: 2, blocked: 0, force: false, unlinkRefs: false });
 
     const res = await createApp().request("/api/admin/cards/batch-delete", {
       method: "POST",
@@ -641,12 +641,37 @@ describe("adminRoute cards endpoint", () => {
     }, { ADMIN_TOKEN: "token" });
 
     expect(res.status).toBe(200);
-    expect(batchDeleteCards).toHaveBeenCalledWith({}, ["card-1", "card-2"]);
-    await expect(res.json()).resolves.toMatchObject({ ok: true, deleted: 2, blocked: 0 });
+    expect(batchDeleteCards).toHaveBeenCalledWith({}, ["card-1", "card-2"], {
+      force: false,
+      unlinkRefs: false,
+    });
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      deleted: 2,
+      blocked: 0,
+      force: false,
+      unlinkRefs: false,
+    });
+  });
+
+  it("forwards force and unlinkRefs when deleting cards", async () => {
+    batchDeleteCards.mockResolvedValueOnce({ deleted: 1, blocked: 0, force: true, unlinkRefs: true });
+
+    const res = await createApp().request("/api/admin/cards/batch-delete", {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: ["issued-card"], force: true, unlinkRefs: true }),
+    }, { ADMIN_TOKEN: "token" });
+
+    expect(res.status).toBe(200);
+    expect(batchDeleteCards).toHaveBeenCalledWith({}, ["issued-card"], {
+      force: true,
+      unlinkRefs: true,
+    });
   });
 
   it("rejects batch card deletion when protected cards are selected", async () => {
-    batchDeleteCards.mockResolvedValueOnce({ deleted: 0, blocked: 1 });
+    batchDeleteCards.mockResolvedValueOnce({ deleted: 0, blocked: 1, force: false, unlinkRefs: false });
 
     const res = await createApp().request("/api/admin/cards/batch-delete", {
       method: "POST",
@@ -655,10 +680,11 @@ describe("adminRoute cards endpoint", () => {
     }, { ADMIN_TOKEN: "token" });
 
     expect(res.status).toBe(409);
-    await expect(res.json()).resolves.toMatchObject({
-      ok: false,
-      error: expect.stringContaining("已发卡"),
-    });
+    const body = await res.json() as { ok: boolean; error: string };
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain("不可删除");
+    expect(body.error).toContain("全部删除");
+    expect(body.error).toContain("解绑订单引用");
   });
 });
 
@@ -767,7 +793,7 @@ describe("adminRoute low-stock notification", () => {
 
 describe("adminRoute order query endpoints", () => {
   it("deletes selected terminal orders through the batch endpoint", async () => {
-    batchDeleteOrders.mockResolvedValueOnce({ deleted: 2, blocked: 0 });
+    batchDeleteOrders.mockResolvedValueOnce({ deleted: 2, blocked: 0, force: false, unlinkRefs: false });
 
     const res = await createApp().request("/api/admin/orders/batch-delete", {
       method: "POST",
@@ -776,12 +802,37 @@ describe("adminRoute order query endpoints", () => {
     }, { ADMIN_TOKEN: "token" });
 
     expect(res.status).toBe(200);
-    expect(batchDeleteOrders).toHaveBeenCalledWith({}, ["order-1", "order-2"]);
-    await expect(res.json()).resolves.toMatchObject({ ok: true, deleted: 2, blocked: 0 });
+    expect(batchDeleteOrders).toHaveBeenCalledWith({}, ["order-1", "order-2"], {
+      force: false,
+      unlinkRefs: false,
+    });
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      deleted: 2,
+      blocked: 0,
+      force: false,
+      unlinkRefs: false,
+    });
+  });
+
+  it("forwards force and unlinkRefs when deleting orders", async () => {
+    batchDeleteOrders.mockResolvedValueOnce({ deleted: 1, blocked: 0, force: true, unlinkRefs: true });
+
+    const res = await createApp().request("/api/admin/orders/batch-delete", {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: ["issued-order"], force: true, unlinkRefs: true }),
+    }, { ADMIN_TOKEN: "token" });
+
+    expect(res.status).toBe(200);
+    expect(batchDeleteOrders).toHaveBeenCalledWith({}, ["issued-order"], {
+      force: true,
+      unlinkRefs: true,
+    });
   });
 
   it("rejects batch deletion when protected orders are selected", async () => {
-    batchDeleteOrders.mockResolvedValueOnce({ deleted: 0, blocked: 1 });
+    batchDeleteOrders.mockResolvedValueOnce({ deleted: 0, blocked: 1, force: false, unlinkRefs: false });
 
     const res = await createApp().request("/api/admin/orders/batch-delete", {
       method: "POST",
@@ -790,10 +841,26 @@ describe("adminRoute order query endpoints", () => {
     }, { ADMIN_TOKEN: "token" });
 
     expect(res.status).toBe(409);
-    await expect(res.json()).resolves.toMatchObject({
-      ok: false,
-      error: expect.stringContaining("不可删除"),
-    });
+    const body = await res.json() as { ok: boolean; error: string };
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain("不可删除");
+    expect(body.error).toContain("全部删除");
+    expect(body.error).toContain("解绑卡密引用");
+  });
+
+  it("only hints missing switches when force is already true", async () => {
+    batchDeleteOrders.mockResolvedValueOnce({ deleted: 0, blocked: 2, force: true, unlinkRefs: false });
+
+    const res = await createApp().request("/api/admin/orders/batch-delete", {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: ["a", "b"], force: true }),
+    }, { ADMIN_TOKEN: "token" });
+
+    expect(res.status).toBe(409);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain("解绑卡密引用");
+    expect(body.error).not.toContain("全部删除");
   });
 
   it("passes comma-separated statuses as a status list", async () => {

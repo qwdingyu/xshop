@@ -3,9 +3,10 @@ export type { DeliveryVisibility, StockDisplayMode } from '@shared/product-contr
 export type { FulfillmentInputType } from '@shared/fulfillment-input'
 import type { DeliveryVisibility, StockDisplayMode } from '@shared/product-contract'
 import type { FulfillmentInputType } from '@shared/fulfillment-input'
+import type { OrderStatus } from '@shared/order-status'
+export type { OrderStatus }
 export type StorefrontTemplate = 'catalog' | 'compact'
-// 订单状态必须与后端 orders.status 保持一致；新增终态时要同步轮询、订单详情和后台筛选。
-export type OrderStatus = 'pending' | 'paid' | 'issued' | 'canceled' | 'expired' | 'failed' | 'refunded' | 'closed'
+// 订单状态规范拼写见 @shared/order-status（canceled 一 d；读路径兼容 cancelled）
 
 // ─── Storefront ───
 

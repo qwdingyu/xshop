@@ -1,17 +1,15 @@
 /** 格式化工具：价格、状态标签 */
 
 import { formatMoney } from '@shared/money'
+import {
+  ORDER_STATUS_LABELS as SHARED_ORDER_STATUS_LABELS,
+  normalizeOrderStatus,
+  orderStatusLabel,
+} from '@shared/order-status'
 
-/** 订单状态中文映射 */
+/** 订单状态中文映射（规范键为 canceled；读路径请用 statusLabel / normalizeOrderStatus） */
 export const ORDER_STATUS_LABELS: Record<string, string> = {
-  pending: '待支付',
-  paid: '已支付',
-  issued: '已发卡',
-  canceled: '已取消',
-  closed: '已关闭',
-  expired: '已过期',
-  failed: '失败',
-  refunded: '已退款',
+  ...SHARED_ORDER_STATUS_LABELS,
 }
 
 /** 按订单币种的最小单位格式化价格。 */
@@ -56,7 +54,9 @@ export function formatIpFingerprint(value?: string | null): string {
   return `${text.slice(0, 10)}...${text.slice(-6)}`
 }
 
-/** 获取订单状态中文标签 */
+/** 获取订单状态中文标签（cancelled 会归一为 canceled 再映射） */
 export function statusLabel(status: string): string {
-  return ORDER_STATUS_LABELS[status] || status
+  return orderStatusLabel(status)
 }
+
+export { normalizeOrderStatus, orderStatusLabel }

@@ -2,7 +2,7 @@ import { createClient, type Client } from "@libsql/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { createDb } from "../db/client";
 import { MIGRATION_FILES } from "../db/migration-files";
-import { batchDeleteOrders, cancelOrder, clearAllMergedLogs, clearBusinessDataPreservingConfig, countProviderOrdersRequiringCredentials, exportOrders, getAdminSummary, getDailyIncomeTrend, getEmailLogList, getMergedLogs, getOrderDetail, getOrderList, recordPaidOrderFulfillmentProgress } from "./admin-service";
+import { batchDeleteCards, batchDeleteOrders, cancelOrder, clearAllMergedLogs, clearBusinessDataPreservingConfig, countProviderOrdersRequiringCredentials, exportOrders, getAdminSummary, getDailyIncomeTrend, getEmailLogList, getMergedLogs, getOrderDetail, getOrderList, recordPaidOrderFulfillmentProgress } from "./admin-service";
 
 type IsolatedClientHandle = { client: Client; path: string };
 
@@ -936,10 +936,12 @@ describe("admin-service - real libSQL order snapshots", () => {
       });
 
       const db = createDb(client);
+      // 默认：非终态整批拒绝
       await expect(batchDeleteOrders(db, ["terminal-order", "protected-order"]))
-        .resolves.toEqual({ deleted: 0, blocked: 1 });
+        .resolves.toEqual({ deleted: 0, blocked: 1, force: false, unlinkRefs: false });
+      // 默认：有卡密引用整批拒绝
       await expect(batchDeleteOrders(db, ["referenced-order"]))
-        .resolves.toEqual({ deleted: 0, blocked: 1 });
+        .resolves.toEqual({ deleted: 0, blocked: 1, force: false, unlinkRefs: false });
 
       await client.execute(`
         CREATE TRIGGER abort_terminal_order_delete
@@ -955,7 +957,7 @@ describe("admin-service - real libSQL order snapshots", () => {
       await client.execute("DROP TRIGGER abort_terminal_order_delete");
 
       const result = await batchDeleteOrders(db, ["terminal-order"]);
-      expect(result).toEqual({ deleted: 1, blocked: 0 });
+      expect(result).toEqual({ deleted: 1, blocked: 0, force: false, unlinkRefs: false });
 
       for (const table of ["orders", "order_items", "order_events", "email_logs", "referral_events"]) {
         const remaining = await client.execute(`SELECT COUNT(*) AS count FROM ${table} WHERE ${table === "orders" ? "id" : "order_id"} = 'terminal-order'`);
@@ -965,6 +967,486 @@ describe("admin-service - real libSQL order snapshots", () => {
       expect(protectedOrder.rows[0]?.status).toBe("issued");
       const referencedOrder = await client.execute("SELECT status FROM orders WHERE id = 'referenced-order'");
       expect(referencedOrder.rows[0]?.status).toBe("expired");
+    } finally {
+      client.close();
+    }
+  });
+
+  it("supports independent force and unlinkRefs switches for order deletion", async () => {
+    const client = createClient({ url: "file::memory:?cache=shared" });
+    try {
+      await applyMigration(client, "0001");
+      await client.execute({
+        sql: "INSERT INTO products (id, slug, title, fulfillment_mode) VALUES (?, ?, ?, ?)",
+        args: ["force-product", "force-product", "Force Product", "card"],
+      });
+      for (const [id, status] of [
+        ["issued-order", "issued"],
+        ["expired-locked", "expired"],
+        ["paid-order", "paid"],
+      ] as const) {
+        await client.execute({
+          sql: `INSERT INTO orders
+            (id, order_no, product_id, buyer_contact, buyer_email, status, fulfillment_mode, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [id, id.toUpperCase(), "force-product", "buyer", "buyer@example.com", status, "card", "2026-01-01T00:00:00.000Z"],
+        });
+      }
+      await client.execute({
+        sql: `INSERT INTO cards (id, product_id, account_label, delivery_secret, status, locked_order_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: ["locked-card", "force-product", "a", "secret-locked", "locked", "expired-locked", "2026-01-01T00:00:00.000Z"],
+      });
+      await client.execute({
+        sql: `INSERT INTO cards (id, product_id, account_label, delivery_secret, status, issued_order_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: ["issued-card", "force-product", "b", "secret-issued", "issued", "issued-order", "2026-01-01T00:00:00.000Z"],
+      });
+
+      const db = createDb(client);
+
+      // force only：仍有卡密引用 → 拒绝
+      await expect(batchDeleteOrders(db, ["issued-order"], { force: true, unlinkRefs: false }))
+        .resolves.toEqual({ deleted: 0, blocked: 1, force: true, unlinkRefs: false });
+
+      // unlink only（终态 + 解绑）：过期且挂 locked 的订单可删，卡密回库存
+      await expect(batchDeleteOrders(db, ["expired-locked"], { force: false, unlinkRefs: true }))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: false, unlinkRefs: true });
+      const released = await client.execute("SELECT status, locked_order_id FROM cards WHERE id = 'locked-card'");
+      expect(released.rows[0]?.status).toBe("available");
+      expect(released.rows[0]?.locked_order_id).toBeNull();
+
+      // force + unlink：删除 issued 订单，issued 卡仅解绑不回库
+      await expect(batchDeleteOrders(db, ["issued-order"], { force: true, unlinkRefs: true }))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: true, unlinkRefs: true });
+      const issuedCard = await client.execute("SELECT status, issued_order_id FROM cards WHERE id = 'issued-card'");
+      expect(issuedCard.rows[0]?.status).toBe("issued");
+      expect(issuedCard.rows[0]?.issued_order_id).toBeNull();
+
+      // force only 且无引用：可删 paid
+      await expect(batchDeleteOrders(db, ["paid-order"], { force: true, unlinkRefs: false }))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: true, unlinkRefs: false });
+    } finally {
+      client.close();
+    }
+  });
+
+  it("supports independent force and unlinkRefs switches for card deletion", async () => {
+    const client = createClient({ url: "file::memory:?cache=shared" });
+    try {
+      await applyMigration(client, "0001");
+      await client.execute({
+        sql: "INSERT INTO products (id, slug, title, fulfillment_mode) VALUES (?, ?, ?, ?)",
+        args: ["card-del-product", "card-del-product", "Card Del", "card"],
+      });
+      await client.execute({
+        sql: `INSERT INTO orders
+          (id, order_no, product_id, buyer_contact, buyer_email, status, fulfillment_mode, issued_card_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: ["order-with-card", "OWC", "card-del-product", "buyer", "b@x.com", "issued", "card", "issued-card-del", "2026-01-01T00:00:00.000Z"],
+      });
+      await client.execute({
+        sql: `INSERT INTO cards (id, product_id, account_label, delivery_secret, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+        args: ["safe-card", "card-del-product", "a", "safe-secret", "available", "2026-01-01T00:00:00.000Z"],
+      });
+      await client.execute({
+        sql: `INSERT INTO cards (id, product_id, account_label, delivery_secret, status, issued_order_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: ["issued-card-del", "card-del-product", "b", "issued-secret", "issued", "order-with-card", "2026-01-01T00:00:00.000Z"],
+      });
+      await client.execute({
+        sql: `INSERT INTO cards (id, product_id, account_label, delivery_secret, status, locked_order_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: ["locked-card-del", "card-del-product", "c", "locked-secret", "locked", "order-with-card", "2026-01-01T00:00:00.000Z"],
+      });
+
+      const db = createDb(client);
+
+      await expect(batchDeleteCards(db, ["safe-card"]))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: false, unlinkRefs: false });
+
+      // 默认拒绝 issued
+      await expect(batchDeleteCards(db, ["issued-card-del"]))
+        .resolves.toEqual({ deleted: 0, blocked: 1, force: false, unlinkRefs: false });
+
+      // force only：仍有订单引用 → 拒绝
+      await expect(batchDeleteCards(db, ["issued-card-del"], { force: true, unlinkRefs: false }))
+        .resolves.toEqual({ deleted: 0, blocked: 1, force: true, unlinkRefs: false });
+
+      // force + unlink：删除并清空 orders.issued_card_id
+      await expect(batchDeleteCards(db, ["issued-card-del"], { force: true, unlinkRefs: true }))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: true, unlinkRefs: true });
+      const orderAfter = await client.execute("SELECT issued_card_id FROM orders WHERE id = 'order-with-card'");
+      expect(orderAfter.rows[0]?.issued_card_id).toBeNull();
+      const cardGone = await client.execute("SELECT COUNT(*) AS count FROM cards WHERE id = 'issued-card-del'");
+      expect(Number(cardGone.rows[0]?.count)).toBe(0);
+
+      // force + unlink 删 locked
+      await expect(batchDeleteCards(db, ["locked-card-del"], { force: true, unlinkRefs: true }))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: true, unlinkRefs: true });
+    } finally {
+      client.close();
+    }
+  });
+
+  it("normalizes cancelled spelling for safe delete and clears balance ledger order refs", async () => {
+    const client = createClient({ url: "file::memory:?cache=shared" });
+    try {
+      await applyMigration(client, "0001");
+
+      await client.execute({
+        sql: "INSERT INTO products (id, slug, title, fulfillment_mode) VALUES (?, ?, ?, ?)",
+        args: ["norm-product", "norm-product", "Norm Product", "card"],
+      });
+      // 历史英式 cancelled 应视为可安全删除
+      await client.execute({
+        sql: `INSERT INTO orders
+          (id, order_no, product_id, buyer_contact, buyer_email, status, fulfillment_mode, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: ["cancelled-legacy", "CL", "norm-product", "buyer", "b@x.com", "cancelled", "card", "2026-01-01T00:00:00.000Z"],
+      });
+      // 已有「原关联订单已删除」的 note 不得重复拼接
+      await client.execute({
+        sql: `INSERT INTO balance_transactions
+          (id, email, type, amount_cents, balance_after_cents, reference_type, reference_id, note, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: ["btx-order", "b@x.com", "order_spend", -100, 0, "order", "cancelled-legacy", "buy", "2026-01-01T00:00:00.000Z"],
+      });
+      await client.execute({
+        sql: `INSERT INTO balance_transactions
+          (id, email, type, amount_cents, balance_after_cents, reference_type, reference_id, note, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: ["btx-empty-note", "b@x.com", "order_refund", 50, 50, "order", "cancelled-legacy", "", "2026-01-01T00:00:00.000Z"],
+      });
+      await client.execute({
+        sql: `INSERT INTO balance_transactions
+          (id, email, type, amount_cents, balance_after_cents, reference_type, reference_id, note, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: ["btx-already-marked", "b@x.com", "order_spend", -10, 40, "order", "cancelled-legacy", "原关联订单已删除", "2026-01-01T00:00:00.000Z"],
+      });
+      // 非 order 引用不得被误清
+      await client.execute({
+        sql: `INSERT INTO balance_transactions
+          (id, email, type, amount_cents, balance_after_cents, reference_type, reference_id, note, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: ["btx-voucher", "b@x.com", "voucher_redeem", 500, 500, "voucher", "cancelled-legacy", "code", "2026-01-01T00:00:00.000Z"],
+      });
+      // card_logs 无 FK，删单必须清掉，避免幽灵 order_id
+      await client.execute({
+        sql: `INSERT INTO card_logs (id, card_id, order_id, action, operator, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+        args: ["clog-legacy", "card-x", "cancelled-legacy", "issue", "system", "2026-01-01T00:00:00.000Z"],
+      });
+
+      const db = createDb(client);
+      await expect(batchDeleteOrders(db, ["cancelled-legacy"]))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: false, unlinkRefs: false });
+
+      const gone = await client.execute("SELECT COUNT(*) AS count FROM orders WHERE id = 'cancelled-legacy'");
+      expect(Number(gone.rows[0]?.count)).toBe(0);
+
+      const orderTx = await client.execute("SELECT reference_type, reference_id, note FROM balance_transactions WHERE id = 'btx-order'");
+      expect(orderTx.rows[0]?.reference_type).toBe("");
+      expect(orderTx.rows[0]?.reference_id).toBe("");
+      expect(String(orderTx.rows[0]?.note || "")).toBe("buy（原关联订单已删除）");
+
+      const emptyNoteTx = await client.execute("SELECT note, reference_type FROM balance_transactions WHERE id = 'btx-empty-note'");
+      expect(emptyNoteTx.rows[0]?.reference_type).toBe("");
+      expect(String(emptyNoteTx.rows[0]?.note || "")).toBe("原关联订单已删除");
+
+      const alreadyMarked = await client.execute("SELECT note FROM balance_transactions WHERE id = 'btx-already-marked'");
+      expect(String(alreadyMarked.rows[0]?.note || "")).toBe("原关联订单已删除");
+
+      const voucherTx = await client.execute("SELECT reference_type, reference_id FROM balance_transactions WHERE id = 'btx-voucher'");
+      expect(voucherTx.rows[0]?.reference_type).toBe("voucher");
+      expect(voucherTx.rows[0]?.reference_id).toBe("cancelled-legacy");
+
+      const cardLogGone = await client.execute("SELECT COUNT(*) AS count FROM card_logs WHERE order_id = 'cancelled-legacy'");
+      expect(Number(cardLogGone.rows[0]?.count)).toBe(0);
+    } finally {
+      client.close();
+    }
+  });
+
+  it("lists cancelled-spelling rows when filtering by canceled and supports unlink on cancelled", async () => {
+    const client = createClient({ url: "file::memory:?cache=shared" });
+    try {
+      // getOrderList/exportOrders 依赖后续迁移的 order_source 等列
+      for (const version of ["0001", "0002", "0003", "0004"]) {
+        await applyMigration(client, version);
+      }
+      await applyMigration(client, "0011");
+      await applyMigration(client, "0013");
+
+      await client.execute({
+        sql: "INSERT INTO products (id, slug, title, fulfillment_mode) VALUES (?, ?, ?, ?)",
+        args: ["filter-product", "filter-product", "Filter Product", "card"],
+      });
+      for (const [id, status, no] of [
+        ["row-canceled", "canceled", "N1"],
+        ["row-cancelled", "cancelled", "N2"],
+        ["row-failed", "failed", "N3"],
+        ["row-paid", "paid", "N4"],
+      ] as const) {
+        await client.execute({
+          sql: `INSERT INTO orders
+            (id, order_no, product_id, buyer_contact, buyer_email, status, fulfillment_mode, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [id, no, "filter-product", "buyer", "b@x.com", status, "card", "2026-01-01T00:00:00.000Z"],
+        });
+      }
+      // cancelled + locked 卡：默认拒绝；unlink 后删除并回库
+      await client.execute({
+        sql: `INSERT INTO cards (id, product_id, account_label, delivery_secret, status, locked_order_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: ["locked-on-cancelled", "filter-product", "L", "secret-L", "locked", "row-cancelled", "2026-01-01T00:00:00.000Z"],
+      });
+
+      const db = createDb(client);
+
+      const byCanceled = await getOrderList(db, {
+        status: "canceled",
+        productId: "",
+        q: "",
+        buyerContact: "",
+        paymentMethod: "",
+        page: 1,
+        limit: 20,
+      });
+      const byCanceledIds = byCanceled.orders.map((row) => String(row.id)).sort();
+      expect(byCanceledIds).toEqual(["row-canceled", "row-cancelled"]);
+
+      const byCancelledSpelling = await getOrderList(db, {
+        status: "cancelled",
+        productId: "",
+        q: "",
+        buyerContact: "",
+        paymentMethod: "",
+        page: 1,
+        limit: 20,
+      });
+      expect(byCancelledSpelling.orders.map((row) => String(row.id)).sort()).toEqual(
+        ["row-canceled", "row-cancelled"],
+      );
+
+      const multi = await getOrderList(db, {
+        status: ["canceled", "failed"],
+        productId: "",
+        q: "",
+        buyerContact: "",
+        paymentMethod: "",
+        page: 1,
+        limit: 20,
+      });
+      expect(multi.orders.map((row) => String(row.id)).sort()).toEqual(
+        ["row-canceled", "row-cancelled", "row-failed"],
+      );
+
+      const exported = await exportOrders(db, {
+        status: "canceled",
+        productId: "",
+        q: "",
+        paymentMethod: "",
+        cursor: "",
+        limit: 50,
+      });
+      expect(exported.rows.map((row) => String(row.id)).sort()).toEqual(
+        ["row-canceled", "row-cancelled"],
+      );
+
+      await expect(batchDeleteOrders(db, ["row-cancelled"]))
+        .resolves.toEqual({ deleted: 0, blocked: 1, force: false, unlinkRefs: false });
+      await expect(batchDeleteOrders(db, ["row-cancelled"], { unlinkRefs: true }))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: false, unlinkRefs: true });
+      const released = await client.execute(
+        "SELECT status, locked_order_id FROM cards WHERE id = 'locked-on-cancelled'",
+      );
+      expect(released.rows[0]?.status).toBe("available");
+      expect(released.rows[0]?.locked_order_id).toBeNull();
+
+      // closed/failed/expired 规范拼写均在默认安全集合内
+      for (const [id, status] of [
+        ["safe-closed", "closed"],
+        ["safe-failed", "failed"],
+        ["safe-expired", "expired"],
+      ] as const) {
+        await client.execute({
+          sql: `INSERT INTO orders
+            (id, order_no, product_id, buyer_contact, buyer_email, status, fulfillment_mode, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [id, id, "filter-product", "buyer", "b@x.com", status, "card", "2026-01-01T00:00:00.000Z"],
+        });
+      }
+      await expect(batchDeleteOrders(db, ["safe-closed", "safe-failed", "safe-expired"]))
+        .resolves.toEqual({ deleted: 3, blocked: 0, force: false, unlinkRefs: false });
+    } finally {
+      client.close();
+    }
+  });
+
+  it("covers order/card delete edge cases: one-way refs, refunded, dirty refs, rollback, empty ids", async () => {
+    const client = createClient({ url: "file::memory:?cache=shared" });
+    try {
+      await applyMigration(client, "0001");
+      await client.execute({
+        sql: "INSERT INTO products (id, slug, title, fulfillment_mode) VALUES (?, ?, ?, ?)",
+        args: ["edge-product", "edge-product", "Edge Product", "card"],
+      });
+
+      // 订单仅有 issued_card_id，卡侧 issued_order_id 为空（单向引用）
+      await client.execute({
+        sql: `INSERT INTO orders
+          (id, order_no, product_id, buyer_contact, buyer_email, status, fulfillment_mode, issued_card_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: ["one-way-order", "OWO", "edge-product", "buyer", "b@x.com", "canceled", "card", "orphan-pointed-card", "2026-01-01T00:00:00.000Z"],
+      });
+      await client.execute({
+        sql: `INSERT INTO cards (id, product_id, account_label, delivery_secret, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+        args: ["orphan-pointed-card", "edge-product", "o", "orphan-secret", "available", "2026-01-01T00:00:00.000Z"],
+      });
+
+      // refunded 不在默认可删集合
+      await client.execute({
+        sql: `INSERT INTO orders
+          (id, order_no, product_id, buyer_contact, buyer_email, status, fulfillment_mode, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: ["refunded-order", "RO", "edge-product", "buyer", "b@x.com", "refunded", "card", "2026-01-01T00:00:00.000Z"],
+      });
+
+      // available 卡却脏写 locked_order_id
+      await client.execute({
+        sql: `INSERT INTO orders
+          (id, order_no, product_id, buyer_contact, buyer_email, status, fulfillment_mode, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: ["dirty-lock-order", "DLO", "edge-product", "buyer", "b@x.com", "expired", "card", "2026-01-01T00:00:00.000Z"],
+      });
+      await client.execute({
+        sql: `INSERT INTO cards (id, product_id, account_label, delivery_secret, status, locked_order_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: ["dirty-available-card", "edge-product", "d", "dirty-secret", "available", "dirty-lock-order", "2026-01-01T00:00:00.000Z"],
+      });
+
+      // disabled 卡无引用，默认可删
+      await client.execute({
+        sql: `INSERT INTO cards (id, product_id, account_label, delivery_secret, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+        args: ["disabled-safe", "edge-product", "x", "disabled-secret", "disabled", "2026-01-01T00:00:00.000Z"],
+      });
+
+      // force 删除时的回滚目标
+      await client.execute({
+        sql: `INSERT INTO orders
+          (id, order_no, product_id, buyer_contact, buyer_email, status, fulfillment_mode, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: ["rollback-order", "RBO", "edge-product", "buyer", "b@x.com", "paid", "card", "2026-01-01T00:00:00.000Z"],
+      });
+      await client.execute({
+        sql: `INSERT INTO cards (id, product_id, account_label, delivery_secret, status, locked_order_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: ["rollback-locked", "edge-product", "r", "rollback-secret", "locked", "rollback-order", "2026-01-01T00:00:00.000Z"],
+      });
+      await client.execute({
+        sql: `INSERT INTO order_items
+          (id, order_id, product_id, product_title, fulfillment_mode, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+        args: ["rollback-item", "rollback-order", "edge-product", "Edge Product", "card", "2026-01-01T00:00:00.000Z"],
+      });
+
+      const db = createDb(client);
+
+      // 空 ids
+      await expect(batchDeleteOrders(db, [])).resolves.toEqual({
+        deleted: 0, blocked: 0, force: false, unlinkRefs: false,
+      });
+      await expect(batchDeleteCards(db, [], { force: true, unlinkRefs: true })).resolves.toEqual({
+        deleted: 0, blocked: 0, force: true, unlinkRefs: true,
+      });
+
+      // 单向引用：未 unlink 拒绝；unlink 后可删，卡保留 available
+      await expect(batchDeleteOrders(db, ["one-way-order"]))
+        .resolves.toEqual({ deleted: 0, blocked: 1, force: false, unlinkRefs: false });
+      await expect(batchDeleteOrders(db, ["one-way-order"], { unlinkRefs: true }))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: false, unlinkRefs: true });
+      const orphanCard = await client.execute("SELECT status, issued_order_id, locked_order_id FROM cards WHERE id = 'orphan-pointed-card'");
+      expect(orphanCard.rows[0]?.status).toBe("available");
+      expect(orphanCard.rows[0]?.issued_order_id).toBeNull();
+      expect(orphanCard.rows[0]?.locked_order_id).toBeNull();
+
+      // refunded 需要 force
+      await expect(batchDeleteOrders(db, ["refunded-order"]))
+        .resolves.toEqual({ deleted: 0, blocked: 1, force: false, unlinkRefs: false });
+      await expect(batchDeleteOrders(db, ["refunded-order"], { force: true }))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: true, unlinkRefs: false });
+
+      // 脏 locked 引用：unlink only 可删终态单，available 卡清 locked_order_id
+      await expect(batchDeleteOrders(db, ["dirty-lock-order"]))
+        .resolves.toEqual({ deleted: 0, blocked: 1, force: false, unlinkRefs: false });
+      await expect(batchDeleteOrders(db, ["dirty-lock-order"], { unlinkRefs: true }))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: false, unlinkRefs: true });
+      const dirtyCard = await client.execute("SELECT status, locked_order_id FROM cards WHERE id = 'dirty-available-card'");
+      expect(dirtyCard.rows[0]?.status).toBe("available");
+      expect(dirtyCard.rows[0]?.locked_order_id).toBeNull();
+
+      // disabled 默认可删
+      await expect(batchDeleteCards(db, ["disabled-safe"]))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: false, unlinkRefs: false });
+
+      // available 但 orders.issued_card_id 仍指向它：需 unlink（或同时 force 也要 unlink）
+      await client.execute({
+        sql: `INSERT INTO cards (id, product_id, account_label, delivery_secret, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+        args: ["pointed-available", "edge-product", "p", "pointed-secret", "available", "2026-01-01T00:00:00.000Z"],
+      });
+      await client.execute({
+        sql: `INSERT INTO orders
+          (id, order_no, product_id, buyer_contact, buyer_email, status, fulfillment_mode, issued_card_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: ["pointing-order", "PO", "edge-product", "buyer", "b@x.com", "issued", "card", "pointed-available", "2026-01-01T00:00:00.000Z"],
+      });
+      await expect(batchDeleteCards(db, ["pointed-available"]))
+        .resolves.toEqual({ deleted: 0, blocked: 1, force: false, unlinkRefs: false });
+      // unlink only 且状态安全：可删
+      await expect(batchDeleteCards(db, ["pointed-available"], { unlinkRefs: true }))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: false, unlinkRefs: true });
+      const pointingOrder = await client.execute("SELECT issued_card_id FROM orders WHERE id = 'pointing-order'");
+      expect(pointingOrder.rows[0]?.issued_card_id).toBeNull();
+
+      // force+unlink 失败时整事务回滚：卡密仍 locked，明细仍在
+      await client.execute(`
+        CREATE TRIGGER abort_rollback_order_delete
+        BEFORE DELETE ON orders
+        WHEN OLD.id = 'rollback-order'
+        BEGIN
+          SELECT RAISE(ABORT, 'forced order delete failure');
+        END
+      `);
+      await expect(
+        batchDeleteOrders(db, ["rollback-order"], { force: true, unlinkRefs: true }),
+      ).rejects.toThrow();
+      const itemAfter = await client.execute("SELECT COUNT(*) AS count FROM order_items WHERE order_id = 'rollback-order'");
+      expect(Number(itemAfter.rows[0]?.count)).toBe(1);
+      const cardAfter = await client.execute("SELECT status, locked_order_id FROM cards WHERE id = 'rollback-locked'");
+      expect(cardAfter.rows[0]?.status).toBe("locked");
+      expect(cardAfter.rows[0]?.locked_order_id).toBe("rollback-order");
+      await client.execute("DROP TRIGGER abort_rollback_order_delete");
+
+      // 成功路径：force+unlink 真正释放 locked
+      await expect(batchDeleteOrders(db, ["rollback-order"], { force: true, unlinkRefs: true }))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: true, unlinkRefs: true });
+      const cardReleased = await client.execute("SELECT status, locked_order_id FROM cards WHERE id = 'rollback-locked'");
+      expect(cardReleased.rows[0]?.status).toBe("available");
+      expect(cardReleased.rows[0]?.locked_order_id).toBeNull();
+
+      // 去重：同一 id 重复提交只删一次
+      await client.execute({
+        sql: `INSERT INTO cards (id, product_id, account_label, delivery_secret, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+        args: ["dedupe-card", "edge-product", "z", "dedupe-secret", "available", "2026-01-01T00:00:00.000Z"],
+      });
+      await expect(batchDeleteCards(db, ["dedupe-card", "dedupe-card", ""]))
+        .resolves.toEqual({ deleted: 1, blocked: 0, force: false, unlinkRefs: false });
     } finally {
       client.close();
     }

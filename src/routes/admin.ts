@@ -327,20 +327,38 @@ adminRoute.get("/orders", async (c) => {
 adminRoute.post("/orders/batch-delete", async (c) => {
   const body = z.object({
     ids: z.array(z.string().trim().min(1).max(120)).min(1).max(200),
+    // 两个开关默认 false，与历史安全删除一致；UI 勾选后才 true。
+    force: z.boolean().optional().default(false),
+    unlinkRefs: z.boolean().optional().default(false),
   }).safeParse(await safeJsonBody(c));
   if (!body.success) return fail(c, "请求参数无效", 400, body.error.flatten());
 
   const db = getDb(c);
-  const result = await batchDeleteOrders(db, body.data.ids);
+  const { force, unlinkRefs } = body.data;
+  const result = await batchDeleteOrders(db, body.data.ids, { force, unlinkRefs });
   if (result.blocked > 0) {
-    return fail(c, `包含 ${result.blocked} 个非失败/取消/关闭/过期订单或仍有关联卡密，不可删除`, 409);
+    // 文案只提示当前未开启的开关，避免 force=true 仍提示「非终态」造成误导。
+    const hints: string[] = [];
+    if (!force) hints.push("勾选「全部删除」以包含非失败/取消/关闭/过期订单");
+    if (!unlinkRefs) hints.push("勾选「解绑卡密引用」以处理仍挂着卡密的订单");
+    const hintText = hints.length > 0 ? `。${hints.join("；")}` : "";
+    return fail(
+      c,
+      `包含 ${result.blocked} 个不可删除订单（受状态或卡密引用保护）${hintText}`,
+      409,
+    );
   }
 
   await writeAdminAudit(db, {
     action: "batch_delete_orders",
     targetType: "order",
     targetId: "",
-    metadata: { requested: body.data.ids.length, deleted: result.deleted },
+    metadata: {
+      requested: body.data.ids.length,
+      deleted: result.deleted,
+      force,
+      unlinkRefs,
+    },
     ipHash: await getIpHash(c),
   });
   return ok(c, result);
@@ -827,20 +845,36 @@ adminRoute.post("/cards/batch-disable", async (c) => {
 adminRoute.post("/cards/batch-delete", async (c) => {
   const body = z.object({
     ids: z.array(z.string().trim().min(1).max(120)).min(1).max(200),
+    force: z.boolean().optional().default(false),
+    unlinkRefs: z.boolean().optional().default(false),
   }).safeParse(await safeJsonBody(c));
   if (!body.success) return fail(c, "请求参数无效", 400, body.error.flatten());
 
   const db = getDb(c);
-  const result = await batchDeleteCards(db, body.data.ids);
+  const { force, unlinkRefs } = body.data;
+  const result = await batchDeleteCards(db, body.data.ids, { force, unlinkRefs });
   if (result.blocked > 0) {
-    return fail(c, `包含 ${result.blocked} 张锁定中或已发卡的卡密，不可删除`, 409);
+    const hints: string[] = [];
+    if (!force) hints.push("勾选「全部删除」以包含锁定中/已发卡卡密");
+    if (!unlinkRefs) hints.push("勾选「解绑订单引用」以处理仍被订单挂着的卡密");
+    const hintText = hints.length > 0 ? `。${hints.join("；")}` : "";
+    return fail(
+      c,
+      `包含 ${result.blocked} 张不可删除卡密（受状态或订单引用保护）${hintText}`,
+      409,
+    );
   }
 
   await writeAdminAudit(db, {
     action: "batch_delete_cards",
     targetType: "card",
     targetId: "",
-    metadata: { requested: body.data.ids.length, deleted: result.deleted },
+    metadata: {
+      requested: body.data.ids.length,
+      deleted: result.deleted,
+      force,
+      unlinkRefs,
+    },
     ipHash: await getIpHash(c),
   });
   return ok(c, result);

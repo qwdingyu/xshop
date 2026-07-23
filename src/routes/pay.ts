@@ -5,6 +5,7 @@ import { FULFILLMENT_MODES, type AppEnv } from "../bindings";
 import { withDbTransaction, type DbType } from "../db/client";
 import { getProduct } from "../services/product-service";
 import type { DeliveryVisibility } from "../../shared/product-contract";
+import { normalizeOrderStatus } from "../../shared/order-status";
 import { checkAndExpireOrder, checkBalanceOrderRateLimit, checkOrderRateLimit, checkProductPurchaseLimitForQuantity, deliveryVisibilityPayload, markPaidAndIssue, redactItemDeliveries } from "../services/order-service";
 import { consumeCoupon, quoteCoupon, releaseCouponReservation } from "../services/coupon-service";
 import { writeOrderEvent } from "../services/audit-service";
@@ -1548,12 +1549,13 @@ payRoute.all("/pay/callback/:provider", async (c) => {
   }
 
   // expired 只有在后续证明实际付款时间早于到期时间时才允许恢复；其他失败终态直接拒绝。
-  if (!["pending", "paid", "issued", "expired"].includes(order.status)) {
-    const message = order.status === "canceled"
+  const orderStatus = normalizeOrderStatus(order.status);
+  if (!["pending", "paid", "issued", "expired"].includes(orderStatus)) {
+    const message = orderStatus === "canceled"
       ? "订单已取消，拒绝回调"
       : "订单状态不可接收支付回调";
     await writeOrderEvent(db, order.id, "callback_rejected", message, {
-      status: order.status,
+      status: orderStatus || order.status,
     });
     return c.text("fail", 400);
   }
@@ -2004,8 +2006,9 @@ payRoute.post("/pay/offline/cancel", async (c) => {
 
   if (!order) return fail(c, "订单不存在或凭证无效", 404);
   if (order.paymentMethod !== "offline") return fail(c, "非线下支付订单", 400);
-  if (order.status === "canceled") return ok(c, { canceled: true, releasedCards: 0 });
-  if (order.status !== "pending") return fail(c, "订单状态不可取消", 409);
+  const offlineStatus = normalizeOrderStatus(order.status);
+  if (offlineStatus === "canceled") return ok(c, { canceled: true, releasedCards: 0 });
+  if (offlineStatus !== "pending") return fail(c, "订单状态不可取消", 409);
   if (order.paymentRef?.startsWith("last4:")) return fail(c, "已提交付款确认，不能直接取消，请联系管理员核对", 409);
 
   // 取消使用 status + payment_ref 双条件 CAS，防止“用户取消”和“用户刚提交付款确认”同时成功。

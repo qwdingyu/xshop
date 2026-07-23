@@ -1,5 +1,6 @@
 import { ref, shallowRef } from 'vue'
 import type { Delivery, DeliveryVisibility, OrderStatus } from '@/types'
+import { normalizeOrderStatus } from '@shared/order-status'
 
 export interface CheckoutOrderState {
   orderId: string
@@ -127,17 +128,21 @@ export function useCheckoutFlow(options: CheckoutFlowOptions) {
           onlineStatus.value = res.fulfillmentPending && res.message
             ? res.message
             : '支付已确认，正在发卡…'
-        } else if (res.status === 'canceled' || res.status === 'closed') {
-          stopPolling()
-          options.showResult('error', '订单已取消', '订单已取消，未完成支付')
-        } else if (res.status === 'expired' || res.status === 'failed' || res.status === 'refunded') {
-          // 这些都是不会再自动进入成功交付的终态，必须停轮询并给用户明确结果。
-          stopPolling()
-          options.showResult(
-            'error',
-            state.isFreeCheckout ? '领取失败' : '支付失败',
-            res.status === 'expired' ? '订单已过期' : res.status === 'refunded' ? '订单已退款' : '支付处理失败',
-          )
+        } else {
+          // 历史英式 cancelled 等拼写统一走 normalize，避免轮询漏判终态。
+          const status = normalizeOrderStatus(res.status)
+          if (status === 'canceled' || status === 'closed') {
+            stopPolling()
+            options.showResult('error', '订单已取消', '订单已取消，未完成支付')
+          } else if (status === 'expired' || status === 'failed' || status === 'refunded') {
+            // 这些都是不会再自动进入成功交付的终态，必须停轮询并给用户明确结果。
+            stopPolling()
+            options.showResult(
+              'error',
+              state.isFreeCheckout ? '领取失败' : '支付失败',
+              status === 'expired' ? '订单已过期' : status === 'refunded' ? '订单已退款' : '支付处理失败',
+            )
+          }
         }
       } catch {
         // 网络抖动时继续轮询，避免用户已支付但前端提前失败。
