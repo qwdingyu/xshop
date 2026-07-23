@@ -56,6 +56,7 @@ describe('storefront routing contract', () => {
     expect(shopSource).toContain('parseProductDeeplinkQuery')
     expect(shopSource).toContain('scrubProductDeeplinkQuery')
     expect(shopSource).toContain('shouldScrubProductDeeplinkAfterAttempt')
+    expect(shopSource).toContain('classifyDeeplinkFetchFailure')
     expect(shopSource).toContain('openPayFromFetchedProduct')
     expect(shopSource).toContain('buildOpenCheckoutFromFetchedProduct')
     expect(shopSource).toContain('fetchProductDetail(productKey, storefrontSlug)')
@@ -66,13 +67,16 @@ describe('storefront routing contract', () => {
     // homePath 纠正必须保留推广 query
     expect(shopSource).toContain('const requestedQuery = { ...route.query }')
     expect(shopSource).toContain('query: requestedQuery')
-    // scrub 必须走决策层，禁止 finally 无条件 scrub（忙锁会吞推广链）
+    // scrub 必须走决策层；catch 必须 classify，禁止一律 unsellable（503 会误吞推广链）
     expect(shopSource).toContain('if (shouldScrub)')
     expect(shopSource).toContain("outcome = 'busy_conflict'")
     expect(shopSource).toContain("opened ? 'opened' : 'open_refused'")
-    expect(shopSource).toContain("outcome = 'unsellable'")
-    // 失败文案：当前渠道不可售，不暗示改道
+    expect(shopSource).toContain('const failureKind = classifyDeeplinkFetchFailure(err)')
+    expect(shopSource).toContain('outcome = failureKind')
+    expect(shopSource).not.toContain("outcome = 'unsellable'")
+    // 失败文案：确认不可售 vs 瞬时可重试，均不暗示改道
     expect(shopSource).toContain('商品在当前渠道不可售或已下架')
+    expect(shopSource).toContain('打开商品失败，请稍后重试')
     expect(shopSource).toContain('正在打开商品…')
     expect(shopSource).toContain('正在打开其他商品，请稍候再试')
     expect(shopSource).not.toContain('router.push({ path: \'/p/')

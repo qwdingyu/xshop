@@ -3,6 +3,7 @@ import {
   PRODUCT_DEEPLINK_QUERY,
   buildStorefrontProductBuyPath,
   buildStorefrontProductBuyUrl,
+  classifyDeeplinkFetchFailure,
   parseProductDeeplinkQuery,
   productDeeplinkConsumeKey,
   productLinkKey,
@@ -66,6 +67,12 @@ describe('storefront product buy link', () => {
       outcome: 'busy_conflict',
     })).toBe(false)
 
+    // 瞬时 503/网络：不清，用户刷新或再次进入可重试
+    expect(shouldScrubProductDeeplinkAfterAttempt({
+      ...base,
+      outcome: 'transient',
+    })).toBe(false)
+
     // 过期序号 / 离开渠道：不清，避免误吞仍有效的 query
     expect(shouldScrubProductDeeplinkAfterAttempt({
       ownedAttempt: true,
@@ -84,6 +91,64 @@ describe('storefront product buy link', () => {
       isLatestSequence: true,
       stillOnExpectedStorefront: true,
       outcome: 'stale_or_left',
+    })).toBe(false)
+  })
+
+  it('classifies detail fetch failures: 404/PRODUCT_NOT_IN_STOREFRONT scrub, 503/network keep', () => {
+    expect(classifyDeeplinkFetchFailure({
+      status: 404,
+      code: 'PRODUCT_NOT_IN_STOREFRONT',
+      message: '商品不属于当前展示渠道或已下架',
+    })).toBe('unsellable')
+
+    expect(classifyDeeplinkFetchFailure({
+      status: 404,
+      code: 'NOT_FOUND',
+      message: '请求的资源不存在',
+    })).toBe('unsellable')
+
+    expect(classifyDeeplinkFetchFailure({
+      status: 404,
+      code: 'STOREFRONT_NOT_FOUND',
+      message: '展示渠道不存在或已停用',
+    })).toBe('unsellable')
+
+    // 瞬时：503 / 429 / 5xx / 无 status 的网络错误 — 不得 scrub
+    expect(classifyDeeplinkFetchFailure({
+      status: 503,
+      code: 'SERVICE_UNAVAILABLE',
+      message: '服务暂时不可用，请稍后重试',
+    })).toBe('transient')
+
+    expect(classifyDeeplinkFetchFailure({
+      status: 429,
+      code: 'RATE_LIMITED',
+      message: '请求过于频繁，请稍后再试',
+    })).toBe('transient')
+
+    expect(classifyDeeplinkFetchFailure({
+      status: 500,
+      code: 'UNKNOWN_ERROR',
+      message: '服务器错误',
+    })).toBe('transient')
+
+    expect(classifyDeeplinkFetchFailure(new TypeError('Failed to fetch'))).toBe('transient')
+    expect(classifyDeeplinkFetchFailure(new Error('Network offline'))).toBe('transient')
+    expect(classifyDeeplinkFetchFailure(null)).toBe('transient')
+
+    // 组合：classify → shouldScrub（模拟 ShopView catch 接线）
+    const owned = {
+      ownedAttempt: true,
+      isLatestSequence: true,
+      stillOnExpectedStorefront: true,
+    }
+    expect(shouldScrubProductDeeplinkAfterAttempt({
+      ...owned,
+      outcome: classifyDeeplinkFetchFailure({ status: 404, code: 'PRODUCT_NOT_IN_STOREFRONT' }),
+    })).toBe(true)
+    expect(shouldScrubProductDeeplinkAfterAttempt({
+      ...owned,
+      outcome: classifyDeeplinkFetchFailure({ status: 503, code: 'SERVICE_UNAVAILABLE' }),
     })).toBe(false)
   })
 })

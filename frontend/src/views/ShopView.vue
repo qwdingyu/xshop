@@ -136,6 +136,7 @@ import {
   openCheckoutFailureMessage,
 } from '@/lib/open-storefront-checkout'
 import {
+  classifyDeeplinkFetchFailure,
   parseProductDeeplinkQuery,
   shouldScrubProductDeeplinkAfterAttempt,
   stripProductDeeplinkQuery,
@@ -273,7 +274,7 @@ async function scrubProductDeeplinkQuery() {
  * - 不跳转其他渠道
  * - 成功路径仅一次 fetchProductDetail，再走 buildOpenCheckoutFromFetchedProduct
  * - 仅在本意图到达售卖终态（打开 / 确认不可售 / builder 拒绝）后 scrub；
- *   忙锁冲突与过期序号绝不清掉 product，避免推广链被误吞
+ *   忙锁、过期序号、瞬时网络/5xx 绝不清掉 product，避免推广链被误吞
  */
 async function tryOpenProductDeeplink(storefrontId: string, storefrontSlug: string) {
   const productKey = parseProductDeeplinkQuery(route.query as Record<string, unknown>)
@@ -309,9 +310,14 @@ async function tryOpenProductDeeplink(storefrontId: string, storefrontSlug: stri
       outcome = 'stale_or_left'
       return
     }
-    // 详情 404 / 渠道不可见：当前渠道确认不可售，可 scrub，避免刷新连环失败 toast
-    outcome = 'unsellable'
-    showToast(err?.message || '商品在当前渠道不可售或已下架', 'error')
+    // 404/PRODUCT_NOT_IN_STOREFRONT → unsellable 可 scrub；503/429/网络 → transient 保留 query
+    const failureKind = classifyDeeplinkFetchFailure(err)
+    outcome = failureKind
+    if (failureKind === 'unsellable') {
+      showToast(err?.message || '商品在当前渠道不可售或已下架', 'error')
+    } else {
+      showToast(err?.message || '打开商品失败，请稍后重试', 'error')
+    }
   } finally {
     // 仅释放本意图占用的锁，避免过期请求清掉新意图的锁
     if (openingProductId.value === openLockKey) {
