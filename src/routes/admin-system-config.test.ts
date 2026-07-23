@@ -14,6 +14,11 @@ vi.mock("../services/admin-service", () => ({
   upsertSystemConfig: (...args: unknown[]) => upsertSystemConfig(...args),
   deleteSystemConfig: (...args: unknown[]) => deleteSystemConfig(...args),
   clearBusinessDataPreservingConfig: (...args: unknown[]) => clearBusinessDataPreservingConfig(...args),
+  CLEAR_BUSINESS_DATA_CONFIRMATIONS: {
+    runtime: "清除运行态与日志",
+    keep_catalog: "清除交易数据保留商品",
+    full: "清除所有业务数据",
+  },
 }));
 
 vi.mock("../services/audit-service", () => ({
@@ -212,26 +217,41 @@ describe("adminSystemConfigRoute", () => {
     expect(deleteSystemConfig).toHaveBeenCalledWith(expect.anything(), "custom_public_banner");
   });
 
-  it("clears business data only with explicit preservation acknowledgement", async () => {
-    clearBusinessDataPreservingConfig.mockResolvedValueOnce({
+  it("clears business data only with matching profile confirmation", async () => {
+    clearBusinessDataPreservingConfig.mockResolvedValue({
       deleted: 18,
       tables: { orders: 1 },
       reservedTables: ["system_config", "product_categories", "api_keys", "schema_migrations"],
       retainedAuditId: "audit-clear-business",
+      profile: "full",
+      cardStrategy: "clear_all",
     });
 
-    const rejected = await createApp().app.request("/clear-business-data", {
+    const rejectedPhrase = await createApp().app.request("/clear-business-data", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        profile: "full",
         confirmation: "wrong",
         preserveConfigAndSystemParams: true,
       }),
     });
-    expect(rejected.status).toBe(400);
+    expect(rejectedPhrase.status).toBe(400);
     expect(clearBusinessDataPreservingConfig).not.toHaveBeenCalled();
 
-    const accepted = await createApp().app.request("/clear-business-data", {
+    const mismatched = await createApp().app.request("/clear-business-data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        profile: "keep_catalog",
+        confirmation: "清除所有业务数据",
+        preserveConfigAndSystemParams: true,
+      }),
+    });
+    expect(mismatched.status).toBe(400);
+    expect(clearBusinessDataPreservingConfig).not.toHaveBeenCalled();
+
+    const acceptedFull = await createApp().app.request("/clear-business-data", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -240,12 +260,46 @@ describe("adminSystemConfigRoute", () => {
       }),
     });
 
-    expect(accepted.status).toBe(200);
-    expect(clearBusinessDataPreservingConfig).toHaveBeenCalledWith(expect.anything(), "ip-hash");
-    await expect(accepted.json()).resolves.toMatchObject({
+    expect(acceptedFull.status).toBe(200);
+    expect(clearBusinessDataPreservingConfig).toHaveBeenCalledWith(expect.anything(), "ip-hash", { profile: "full" });
+    await expect(acceptedFull.json()).resolves.toMatchObject({
       ok: true,
       deleted: 18,
       retainedAuditId: "audit-clear-business",
     });
+
+    clearBusinessDataPreservingConfig.mockClear();
+    clearBusinessDataPreservingConfig.mockResolvedValueOnce({
+      deleted: 5,
+      tables: { request_logs: 1 },
+      reservedTables: ["system_config", "products"],
+      retainedAuditId: "audit-runtime",
+      profile: "runtime",
+      cardStrategy: "none",
+    });
+
+    const acceptedRuntime = await createApp().app.request("/clear-business-data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        profile: "runtime",
+        confirmation: "清除运行态与日志",
+        preserveConfigAndSystemParams: true,
+      }),
+    });
+    expect(acceptedRuntime.status).toBe(200);
+    expect(clearBusinessDataPreservingConfig).toHaveBeenCalledWith(expect.anything(), "ip-hash", { profile: "runtime" });
+
+    clearBusinessDataPreservingConfig.mockClear();
+    const missingPreserveFlag = await createApp().app.request("/clear-business-data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        profile: "full",
+        confirmation: "清除所有业务数据",
+      }),
+    });
+    expect(missingPreserveFlag.status).toBe(400);
+    expect(clearBusinessDataPreservingConfig).not.toHaveBeenCalled();
   });
 });

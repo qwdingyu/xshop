@@ -743,17 +743,26 @@ export function clearAllAdminLogs(token: string): Promise<{
   })
 }
 
+export type AdminClearBusinessDataProfile = 'runtime' | 'keep_catalog' | 'full'
+
 export interface AdminClearBusinessDataResult {
   deleted: number
   tables: Record<string, number>
   reservedTables: string[]
   retainedAuditId: string
+  profile: AdminClearBusinessDataProfile
+  cardStrategy: 'none' | 'clear_all'
 }
 
-export function clearAdminBusinessData(token: string, confirmation: string): Promise<AdminClearBusinessDataResult> {
+export function clearAdminBusinessData(
+  token: string,
+  confirmation: string,
+  profile: AdminClearBusinessDataProfile = 'full',
+): Promise<AdminClearBusinessDataResult> {
   return adminRequest(token, '/api/admin/system-config/clear-business-data', {
     method: 'POST',
     body: JSON.stringify({
+      profile,
       confirmation,
       preserveConfigAndSystemParams: true,
     }),

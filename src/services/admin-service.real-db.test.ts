@@ -1,8 +1,23 @@
 import { createClient, type Client } from "@libsql/client";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createDb } from "../db/client";
 import { MIGRATION_FILES } from "../db/migration-files";
 import { batchDeleteOrders, cancelOrder, clearAllMergedLogs, clearBusinessDataPreservingConfig, countProviderOrdersRequiringCredentials, exportOrders, getAdminSummary, getDailyIncomeTrend, getEmailLogList, getMergedLogs, getOrderDetail, getOrderList, recordPaidOrderFulfillmentProgress } from "./admin-service";
+
+const openClearClients: Client[] = [];
+
+afterEach(() => {
+  while (openClearClients.length > 0) {
+    openClearClients.pop()?.close();
+  }
+});
+
+/** 独立文件库，避免 file::memory 在事务连接上丢表，也不引入 node:fs（Workers tsconfig 无 Node types）。 */
+function createIsolatedClient(): Client {
+  const client = createClient({ url: `file:/tmp/cf-shop-admin-clear-${crypto.randomUUID()}.db` });
+  openClearClients.push(client);
+  return client;
+}
 
 async function applyMigration(client: Client, version: string): Promise<void> {
   const content = MIGRATION_FILES[version];
@@ -165,12 +180,13 @@ describe("admin-service - real libSQL order snapshots", () => {
   });
 
   it("clears business and transient tables while preserving configuration tables", async () => {
-    const client = createClient({ url: "file::memory:?cache=shared" });
+    const client = createIsolatedClient();
     try {
       await applyMigration(client, "0001");
       await applyMigration(client, "0002");
       await applyMigration(client, "0006");
       await applyMigration(client, "0009");
+      await applyMigration(client, "0011");
       await client.execute(`
         CREATE TABLE IF NOT EXISTS schema_migrations (
           version TEXT PRIMARY KEY,
@@ -180,38 +196,44 @@ describe("admin-service - real libSQL order snapshots", () => {
       `);
 
       const now = "2026-07-18T00:00:00.000Z";
+      // 0011 会预置默认渠道；system_config 也可能已有 key，使用 upsert / 非默认渠道避免冲突。
       await client.batch([
         {
           sql: "INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
           args: ["shop_name", "保留店铺", now],
         },
-        { sql: "INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?)", args: ["payment_provider:easypay", "enc:payment-config", now] },
-        { sql: "INSERT INTO product_categories (id, name, sort_order, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["cat-1", "保留分类", 1, 1, now, now] },
-        { sql: "INSERT INTO admin_audit_logs (id, action, target_type, target_id, metadata_json, ip_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["audit-old", "old_action", "system", "old", "{}", "ip", now] },
-        { sql: "INSERT INTO api_keys (id, name, key_hash, user_id, tier, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", args: ["api-1", "保留 API Key", "hash-1", "", "free", 1, now, now] },
+        {
+          sql: "INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+          args: ["payment_provider:easypay", "enc:payment-config", now],
+        },
+        { sql: "INSERT INTO product_categories (id, name, sort_order, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["cat-full", "保留分类", 1, 1, now, now] },
+        { sql: "INSERT INTO admin_audit_logs (id, action, target_type, target_id, metadata_json, ip_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["audit-full-old", "old_action", "system", "old", "{}", "ip", now] },
+        { sql: "INSERT INTO api_keys (id, name, key_hash, user_id, tier, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", args: ["api-full", "保留 API Key", "hash-full", "", "free", 1, now, now] },
         { sql: "INSERT INTO schema_migrations (version, name, executed_at) VALUES (?, ?, ?)", args: ["0001", "init", now] },
-        { sql: "INSERT INTO products (id, slug, title, fulfillment_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["prod-1", "prod-1", "商品", "card", now, now] },
-        { sql: "INSERT INTO card_batches (id, product_id, name, total_count, created_at) VALUES (?, ?, ?, ?, ?)", args: ["batch-1", "prod-1", "批次", 1, now] },
-        { sql: "INSERT INTO cards (id, product_id, batch_id, account_label, delivery_secret, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["card-1", "prod-1", "batch-1", "账号", "secret", "available", now] },
-        { sql: "INSERT INTO orders (id, order_no, product_id, buyer_contact, buyer_email, amount_cents, status, fulfillment_mode, payment_provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", args: ["order-1", "NO1", "prod-1", "buyer@example.com", "buyer@example.com", 100, "pending", "card", "easypay", now] },
-        { sql: "INSERT INTO order_items (id, order_id, product_id, product_title, created_at) VALUES (?, ?, ?, ?, ?)", args: ["item-1", "order-1", "prod-1", "商品", now] },
-        { sql: "INSERT INTO order_events (id, order_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)", args: ["event-1", "order-1", "created", "created", now] },
-        { sql: "INSERT INTO campaigns (code, name, active, created_at) VALUES (?, ?, ?, ?)", args: ["camp-1", "活动", 1, now] },
-        { sql: "INSERT INTO referral_codes (code, owner_contact, active, created_at) VALUES (?, ?, ?, ?)", args: ["ref-1", "owner", 1, now] },
-        { sql: "INSERT INTO referral_events (id, referral_code, order_id, buyer_contact, status, created_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["ref-event-1", "ref-1", "order-1", "buyer", "created", now] },
-        { sql: "INSERT INTO coupons (code, product_id, discount_type, discount_value, active, created_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["coupon-1", "prod-1", "fixed", 10, 1, now] },
-        { sql: "INSERT INTO card_logs (id, card_id, order_id, action, operator, created_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["card-log-1", "card-1", "order-1", "import", "admin", now] },
-        { sql: "INSERT INTO request_logs (id, ip_hash, method, path, action, status_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["request-1", "ip", "GET", "/api/products", "products", 200, now] },
-        { sql: "INSERT INTO email_logs (id, order_id, to_email, template, status, created_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["email-1", "order-1", "buyer@example.com", "order_pending", "sent", now] },
-        { sql: "INSERT INTO voucher_codes (code, amount_cents, status, batch_id, created_at) VALUES (?, ?, ?, ?, ?)", args: ["VCH-TEST0001", 100, "active", "vbatch-1", now] },
-        { sql: "INSERT INTO user_balances (email, balance_cents, total_deposited_cents, total_spent_cents, updated_at) VALUES (?, ?, ?, ?, ?)", args: ["buyer@example.com", 100, 100, 0, now] },
-        { sql: "INSERT INTO balance_transactions (id, email, type, amount_cents, balance_after_cents, reference_type, reference_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", args: ["balance-tx-1", "buyer@example.com", "voucher_redeem", 100, 100, "voucher", "VCH-TEST0001", now] },
-        { sql: "INSERT INTO balance_recharge_orders (id, order_no, buyer_email, amount_cents, status, payment_provider, order_token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", args: ["recharge-1", "RNO1", "buyer@example.com", 100, "pending", "easypay", "token-hash", now, now] },
-        { sql: "INSERT INTO rate_limit_windows (action, ip_hash, window_start, request_count) VALUES (?, ?, ?, ?)", args: ["admin:test", "ip", 1, 1] },
-        { sql: "INSERT INTO idempotency_keys (key, action, resource_id, response_json, created_at, request_hash) VALUES (?, ?, ?, ?, ?, ?)", args: ["idem-1", "pay", "order-1", "{}", now, "hash"] },
+        { sql: "INSERT INTO products (id, slug, title, fulfillment_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["prod-full", "prod-full", "商品", "card", now, now] },
+        { sql: "INSERT INTO storefronts (id, slug, name, active, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["sf-full", "sf-full", "副店", 1, 0, now, now] },
+        { sql: "INSERT INTO storefront_products (storefront_id, product_id, visible, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["sf-full", "prod-full", 1, 1, now, now] },
+        { sql: "INSERT INTO card_batches (id, product_id, name, total_count, created_at) VALUES (?, ?, ?, ?, ?)", args: ["batch-full", "prod-full", "批次", 1, now] },
+        { sql: "INSERT INTO cards (id, product_id, batch_id, account_label, delivery_secret, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["card-full", "prod-full", "batch-full", "账号", "secret-full", "available", now] },
+        { sql: "INSERT INTO orders (id, order_no, product_id, buyer_contact, buyer_email, amount_cents, status, fulfillment_mode, payment_provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", args: ["order-full", "NO-FULL", "prod-full", "buyer@example.com", "buyer@example.com", 100, "pending", "card", "easypay", now] },
+        { sql: "INSERT INTO order_items (id, order_id, product_id, product_title, created_at) VALUES (?, ?, ?, ?, ?)", args: ["item-full", "order-full", "prod-full", "商品", now] },
+        { sql: "INSERT INTO order_events (id, order_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)", args: ["event-full", "order-full", "created", "created", now] },
+        { sql: "INSERT INTO campaigns (code, name, active, created_at) VALUES (?, ?, ?, ?)", args: ["camp-full", "活动", 1, now] },
+        { sql: "INSERT INTO referral_codes (code, owner_contact, active, created_at) VALUES (?, ?, ?, ?)", args: ["ref-full", "owner", 1, now] },
+        { sql: "INSERT INTO referral_events (id, referral_code, order_id, buyer_contact, status, created_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["ref-event-full", "ref-full", "order-full", "buyer", "created", now] },
+        { sql: "INSERT INTO coupons (code, product_id, discount_type, discount_value, active, created_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["coupon-full", "prod-full", "fixed", 10, 1, now] },
+        { sql: "INSERT INTO card_logs (id, card_id, order_id, action, operator, created_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["card-log-full", "card-full", "order-full", "import", "admin", now] },
+        { sql: "INSERT INTO request_logs (id, ip_hash, method, path, action, status_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["request-full", "ip", "GET", "/api/products", "products", 200, now] },
+        { sql: "INSERT INTO email_logs (id, order_id, to_email, template, status, created_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["email-full", "order-full", "buyer@example.com", "order_pending", "sent", now] },
+        { sql: "INSERT INTO voucher_codes (code, amount_cents, status, batch_id, created_at) VALUES (?, ?, ?, ?, ?)", args: ["VCH-FULL0001", 100, "active", "vbatch-full", now] },
+        { sql: "INSERT INTO user_balances (email, balance_cents, total_deposited_cents, total_spent_cents, updated_at) VALUES (?, ?, ?, ?, ?)", args: ["full@example.com", 100, 100, 0, now] },
+        { sql: "INSERT INTO balance_transactions (id, email, type, amount_cents, balance_after_cents, reference_type, reference_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", args: ["balance-tx-full", "full@example.com", "voucher_redeem", 100, 100, "voucher", "VCH-FULL0001", now] },
+        { sql: "INSERT INTO balance_recharge_orders (id, order_no, buyer_email, amount_cents, status, payment_provider, order_token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", args: ["recharge-full", "RNO-FULL", "full@example.com", 100, "pending", "easypay", "token-hash", now, now] },
+        { sql: "INSERT INTO rate_limit_windows (action, ip_hash, window_start, request_count) VALUES (?, ?, ?, ?)", args: ["admin:test-full", "ip", 1, 1] },
+        { sql: "INSERT INTO idempotency_keys (key, action, resource_id, response_json, created_at, request_hash) VALUES (?, ?, ?, ?, ?, ?)", args: ["idem-full", "pay", "order-full", "{}", now, "hash"] },
       ]);
 
-      const result = await clearBusinessDataPreservingConfig(createDb(client), "admin-ip");
+      const result = await clearBusinessDataPreservingConfig(createDb(client), "admin-ip", { profile: "full" });
 
       const clearedTables = [
         "order_items",
@@ -228,6 +250,7 @@ describe("admin-service - real libSQL order snapshots", () => {
         "referral_codes",
         "coupons",
         "card_batches",
+        "storefront_products",
         "products",
         "request_logs",
         "email_logs",
@@ -243,12 +266,15 @@ describe("admin-service - real libSQL order snapshots", () => {
       const categoryCount = await client.execute("SELECT COUNT(*) AS count FROM product_categories");
       const apiKeyCount = await client.execute("SELECT COUNT(*) AS count FROM api_keys");
       const migrationCount = await client.execute("SELECT COUNT(*) AS count FROM schema_migrations");
-      const auditRows = await client.execute("SELECT action, target_type, metadata_json, ip_hash FROM admin_audit_logs ORDER BY created_at, id");
+      const storefrontCount = await client.execute("SELECT COUNT(*) AS count FROM storefronts");
+      const auditRows = await client.execute("SELECT action, target_type, target_id, metadata_json, ip_hash FROM admin_audit_logs ORDER BY created_at, id");
 
-      expect(result.deleted).toBe(20);
+      expect(result.profile).toBe("full");
+      expect(result.cardStrategy).toBe("clear_all");
       expect(result.tables.orders).toBe(1);
+      expect(result.tables.storefront_products).toBeGreaterThanOrEqual(1);
       expect(result.tables.admin_audit_logs).toBe(1);
-      expect(result.reservedTables).toEqual(["system_config", "product_categories", "api_keys", "schema_migrations"]);
+      expect(result.reservedTables).toEqual(["system_config", "product_categories", "api_keys", "schema_migrations", "storefronts"]);
       expect(systemConfigRows.rows).toEqual(expect.arrayContaining([
         { key: "payment_provider:easypay", value: "enc:payment-config" },
         { key: "shop_name", value: "保留店铺" },
@@ -256,19 +282,147 @@ describe("admin-service - real libSQL order snapshots", () => {
       expect(Number(categoryCount.rows[0]?.count || 0)).toBe(1);
       expect(Number(apiKeyCount.rows[0]?.count || 0)).toBe(1);
       expect(Number(migrationCount.rows[0]?.count || 0)).toBe(1);
+      // full 清商品与映射，但渠道定义本身保留（含 0011 默认渠道 + 测试副店）
+      expect(Number(storefrontCount.rows[0]?.count || 0)).toBeGreaterThanOrEqual(2);
       expect(auditRows.rows).toHaveLength(1);
       expect(auditRows.rows[0]).toMatchObject({
         action: "clear_business_data",
         target_type: "database",
+        target_id: "full",
         ip_hash: "admin-ip",
       });
       expect(JSON.parse(String(auditRows.rows[0]?.metadata_json))).toMatchObject({
-        deleted: 20,
-        reservedTables: ["system_config", "product_categories", "api_keys", "schema_migrations"],
+        profile: "full",
+        cardStrategy: "clear_all",
+        reservedTables: ["system_config", "product_categories", "api_keys", "schema_migrations", "storefronts"],
       });
     } finally {
       await client.execute("DELETE FROM admin_audit_logs").catch(() => undefined);
       await client.execute("DELETE FROM request_logs").catch(() => undefined);
+      client.close();
+    }
+  });
+
+  it("full profile remains compatible when storefront tables are absent (pre-0011)", async () => {
+    const client = createIsolatedClient();
+    try {
+      await applyMigration(client, "0001");
+      await applyMigration(client, "0006");
+      await applyMigration(client, "0009");
+
+      const now = "2026-07-18T00:00:00.000Z";
+      await client.batch([
+        { sql: "INSERT INTO products (id, slug, title, fulfillment_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["prod-pre", "prod-pre", "商品", "card", now, now] },
+        { sql: "INSERT INTO orders (id, order_no, product_id, buyer_contact, buyer_email, amount_cents, status, fulfillment_mode, payment_provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", args: ["order-pre", "NO-PRE", "prod-pre", "buyer@example.com", "buyer@example.com", 100, "pending", "card", "easypay", now] },
+        { sql: "INSERT INTO request_logs (id, ip_hash, method, path, action, status_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["request-pre", "ip", "GET", "/api/products", "products", 200, now] },
+      ]);
+
+      const result = await clearBusinessDataPreservingConfig(createDb(client), "admin-ip", { profile: "full" });
+
+      expect(result.profile).toBe("full");
+      expect(result.tables.storefront_products).toBeUndefined();
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM products")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM orders")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM request_logs")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM admin_audit_logs")).rows[0]?.c || 0)).toBe(1);
+    } finally {
+      await client.execute("DELETE FROM admin_audit_logs").catch(() => undefined);
+      client.close();
+    }
+  });
+
+  it("keep_catalog clears trade inventory and wallet but keeps products", async () => {
+    const client = createIsolatedClient();
+    try {
+      await applyMigration(client, "0001");
+      await applyMigration(client, "0002");
+      await applyMigration(client, "0006");
+      await applyMigration(client, "0009");
+      await applyMigration(client, "0011");
+
+      const now = "2026-07-18T00:00:00.000Z";
+      // 0011 会预置默认渠道；system_config 也可能已有 key，使用 upsert / 非默认渠道避免冲突。
+      await client.batch([
+        {
+          sql: "INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+          args: ["shop_name", "保留店铺", now],
+        },
+        { sql: "INSERT INTO products (id, slug, title, fulfillment_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["prod-keep", "prod-keep", "商品", "card", now, now] },
+        { sql: "INSERT INTO storefronts (id, slug, name, active, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["sf-keep", "main-keep", "副店", 1, 0, now, now] },
+        { sql: "INSERT INTO storefront_products (storefront_id, product_id, visible, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["sf-keep", "prod-keep", 1, 1, now, now] },
+        { sql: "INSERT INTO card_batches (id, product_id, name, total_count, created_at) VALUES (?, ?, ?, ?, ?)", args: ["batch-keep", "prod-keep", "批次", 1, now] },
+        { sql: "INSERT INTO cards (id, product_id, batch_id, account_label, delivery_secret, status, issued_order_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", args: ["card-keep", "prod-keep", "batch-keep", "账号", "secret-keep", "issued", "order-keep", now] },
+        { sql: "INSERT INTO orders (id, order_no, product_id, buyer_contact, buyer_email, amount_cents, status, fulfillment_mode, payment_provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", args: ["order-keep", "NO-KEEP", "prod-keep", "buyer@example.com", "buyer@example.com", 100, "issued", "card", "easypay", now] },
+        { sql: "INSERT INTO order_items (id, order_id, product_id, product_title, created_at) VALUES (?, ?, ?, ?, ?)", args: ["item-keep", "order-keep", "prod-keep", "商品", now] },
+        { sql: "INSERT INTO user_balances (email, balance_cents, total_deposited_cents, total_spent_cents, updated_at) VALUES (?, ?, ?, ?, ?)", args: ["keep@example.com", 100, 100, 0, now] },
+        { sql: "INSERT INTO balance_transactions (id, email, type, amount_cents, balance_after_cents, reference_type, reference_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", args: ["balance-tx-keep", "keep@example.com", "voucher_redeem", 100, 100, "voucher", "VCH", now] },
+        { sql: "INSERT INTO request_logs (id, ip_hash, method, path, action, status_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["request-keep", "ip", "GET", "/api/products", "products", 200, now] },
+        { sql: "INSERT INTO admin_audit_logs (id, action, target_type, target_id, metadata_json, ip_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["audit-keep-old", "old", "system", "old", "{}", "ip", now] },
+      ]);
+
+      const result = await clearBusinessDataPreservingConfig(createDb(client), "admin-ip", { profile: "keep_catalog" });
+
+      expect(result.profile).toBe("keep_catalog");
+      expect(result.cardStrategy).toBe("clear_all");
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM orders")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM cards")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM card_batches")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM user_balances")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM request_logs")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM products")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM storefronts WHERE id = 'sf-keep'")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM storefront_products WHERE product_id = 'prod-keep'")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM system_config WHERE key = 'shop_name'")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM admin_audit_logs")).rows[0]?.c || 0)).toBe(1);
+      expect(result.reservedTables).toEqual(expect.arrayContaining([
+        "system_config",
+        "products",
+        "storefronts",
+        "storefront_products",
+      ]));
+    } finally {
+      await client.execute("DELETE FROM admin_audit_logs").catch(() => undefined);
+      client.close();
+    }
+  });
+
+  it("runtime profile only clears logs and transient state", async () => {
+    const client = createIsolatedClient();
+    try {
+      await applyMigration(client, "0001");
+      await applyMigration(client, "0006");
+      await applyMigration(client, "0009");
+
+      const now = "2026-07-18T00:00:00.000Z";
+      await client.batch([
+        { sql: "INSERT INTO products (id, slug, title, fulfillment_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["prod-rt", "prod-rt", "商品", "card", now, now] },
+        { sql: "INSERT INTO cards (id, product_id, account_label, delivery_secret, status, created_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["card-rt", "prod-rt", "账号", "secret-rt", "available", now] },
+        { sql: "INSERT INTO orders (id, order_no, product_id, buyer_contact, buyer_email, amount_cents, status, fulfillment_mode, payment_provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", args: ["order-rt", "NO-RT", "prod-rt", "buyer@example.com", "buyer@example.com", 100, "issued", "card", "easypay", now] },
+        { sql: "INSERT INTO user_balances (email, balance_cents, total_deposited_cents, total_spent_cents, updated_at) VALUES (?, ?, ?, ?, ?)", args: ["runtime@example.com", 50, 50, 0, now] },
+        { sql: "INSERT INTO request_logs (id, ip_hash, method, path, action, status_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["request-rt", "ip", "GET", "/api/products", "products", 200, now] },
+        { sql: "INSERT INTO email_logs (id, order_id, to_email, template, status, created_at) VALUES (?, ?, ?, ?, ?, ?)", args: ["email-rt", "order-rt", "buyer@example.com", "order_pending", "sent", now] },
+        { sql: "INSERT INTO rate_limit_windows (action, ip_hash, window_start, request_count) VALUES (?, ?, ?, ?)", args: ["admin:test-rt", "ip", 1, 1] },
+        { sql: "INSERT INTO idempotency_keys (key, action, resource_id, response_json, created_at, request_hash) VALUES (?, ?, ?, ?, ?, ?)", args: ["idem-rt", "pay", "order-rt", "{}", now, "hash"] },
+        { sql: "INSERT INTO admin_audit_logs (id, action, target_type, target_id, metadata_json, ip_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args: ["audit-rt-old", "old", "system", "old", "{}", "ip", now] },
+      ]);
+
+      const result = await clearBusinessDataPreservingConfig(createDb(client), "admin-ip", { profile: "runtime" });
+
+      expect(result.profile).toBe("runtime");
+      expect(result.cardStrategy).toBe("none");
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM orders")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM cards")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM products")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM user_balances")).rows[0]?.c || 0)).toBe(1);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM request_logs")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM email_logs")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM rate_limit_windows")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM idempotency_keys")).rows[0]?.c || 0)).toBe(0);
+      expect(Number((await client.execute("SELECT COUNT(*) AS c FROM admin_audit_logs")).rows[0]?.c || 0)).toBe(1);
+      expect(result.tables.products).toBeUndefined();
+      expect(result.tables.orders).toBeUndefined();
+    } finally {
+      await client.execute("DELETE FROM admin_audit_logs").catch(() => undefined);
       client.close();
     }
   });

@@ -2768,55 +2768,133 @@ export async function clearAllMergedLogs(
   });
 }
 
+/**
+ * 数据维护清理档位（第一期：固定三档，禁止自由组合表，避免对账灾难）。
+ *
+ * - runtime：只清日志与瞬态状态，不动交易/库存/账本/目录
+ * - keep_catalog：清交易+库存(S1 全清卡密)+账本+营销+日志；保留商品与展示渠道
+ * - full：与历史「清除所有业务数据」一致（仍保留 system_config / 分类 / api_keys / 迁移）
+ */
+export type ClearBusinessDataProfile = "runtime" | "keep_catalog" | "full";
+
 export type ClearBusinessDataResult = {
   deleted: number;
   tables: Record<string, number>;
   reservedTables: string[];
   retainedAuditId: string;
+  profile: ClearBusinessDataProfile;
+  cardStrategy: "none" | "clear_all";
 };
 
-const CLEAR_BUSINESS_DATA_RESERVED_TABLES = [
+/** 三档各自的确认短语：服务端与 UI 必须一致，禁止用布尔开关替代。 */
+export const CLEAR_BUSINESS_DATA_CONFIRMATIONS: Record<ClearBusinessDataProfile, string> = {
+  runtime: "清除运行态与日志",
+  keep_catalog: "清除交易数据保留商品",
+  full: "清除所有业务数据",
+};
+
+const CLEAR_BUSINESS_DATA_BASE_RESERVED = [
   "system_config",
   "product_categories",
   "api_keys",
   "schema_migrations",
 ] as const;
 
+const CLEAR_BUSINESS_DATA_RESERVED_BY_PROFILE: Record<ClearBusinessDataProfile, readonly string[]> = {
+  runtime: [
+    ...CLEAR_BUSINESS_DATA_BASE_RESERVED,
+    "products",
+    "storefronts",
+    "storefront_products",
+    "orders",
+    "cards",
+    "user_balances",
+    "coupons",
+  ],
+  keep_catalog: [
+    ...CLEAR_BUSINESS_DATA_BASE_RESERVED,
+    "products",
+    "storefronts",
+    "storefront_products",
+  ],
+  // storefronts 故意保留（历史行为 + 渠道定义属配置侧）；full 仍清商品与映射。
+  full: [...CLEAR_BUSINESS_DATA_BASE_RESERVED, "storefronts"],
+};
+
+export type ClearBusinessDataOptions = {
+  /** 默认 full，兼容旧调用与运维脚本语义 */
+  profile?: ClearBusinessDataProfile;
+};
+
 /**
- * 清空上线前 smoke/验收产生的业务数据，同时保留配置和系统参数。
+ * 按档位清空验收/运维数据，始终保留配置与系统参数。
  *
- * 边界与 scripts/22-cleanup-business-data.sh 保持一致：
- * - 保留 system_config，支付配置 payment_provider:* 也存放在这里，不能误删。
- * - 保留 product_categories / api_keys / schema_migrations，它们属于后台配置或系统能力。
- * - 清除旧 admin_audit_logs，只写回本次清理凭证；旧审计里可能含邮箱、订单号等业务痕迹。
- * - 同步清理 rate_limit_windows / idempotency_keys，防止旧限流窗口或旧幂等响应污染清库后的验收。
+ * 安全边界：
+ * - 不提供「清订单但原样保留 issued 卡密」——keep_catalog / full 清交易时卡密策略固定为 clear_all（S1）。
+ * - 不删除 storefronts（full 档亦然，与历史行为一致；keep_catalog 保留渠道与商品映射，full 显式清映射后再清商品）。
+ * - 清除旧 admin_audit_logs，只写回本次清理凭证。
+ * - 同步清理 rate_limit_windows / idempotency_keys，避免清库后被旧幂等/限流污染。
  */
 export async function clearBusinessDataPreservingConfig(
   db: DbType,
   ipHash: string,
+  options: ClearBusinessDataOptions = {},
 ): Promise<ClearBusinessDataResult> {
+  const profile: ClearBusinessDataProfile = options.profile ?? "full";
+  if (profile !== "runtime" && profile !== "keep_catalog" && profile !== "full") {
+    throw new Error("不支持的数据清理档位");
+  }
+
+  const reservedTables = [...CLEAR_BUSINESS_DATA_RESERVED_BY_PROFILE[profile]];
+  const cardStrategy: ClearBusinessDataResult["cardStrategy"] =
+    profile === "runtime" ? "none" : "clear_all";
+  const clearTradeAndInventory = profile === "keep_catalog" || profile === "full";
+  const clearCatalogProducts = profile === "full";
+
   return withDbTransaction(db, async (tx) => {
     const tables: Record<string, number> = {};
     const recordDelete = (table: string, result: { rowsAffected?: number | null }) => {
       tables[table] = result.rowsAffected ?? 0;
     };
 
-    // 删除顺序沿用运维脚本：先子表/流水/日志，再订单、库存、商品和瞬态运行状态。
-    recordDelete("order_items", await tx.delete(orderItems));
-    recordDelete("order_events", await tx.delete(orderEvents));
-    recordDelete("referral_events", await tx.delete(referralEvents));
-    recordDelete("balance_transactions", await tx.delete(balanceTransactions));
-    recordDelete("balance_recharge_orders", await tx.delete(balanceRechargeOrders));
-    recordDelete("card_logs", await tx.delete(cardLogs));
-    recordDelete("orders", await tx.delete(orders));
-    recordDelete("cards", await tx.delete(cards));
-    recordDelete("user_balances", await tx.delete(userBalances));
-    recordDelete("voucher_codes", await tx.delete(voucherCodes));
-    recordDelete("campaigns", await tx.delete(campaigns));
-    recordDelete("referral_codes", await tx.delete(referralCodes));
-    recordDelete("coupons", await tx.delete(coupons));
-    recordDelete("card_batches", await tx.delete(cardBatches));
-    recordDelete("products", await tx.delete(products));
+    // 交易 / 库存 / 账本 / 营销：仅 keep_catalog 与 full。
+    // 删除顺序：先子表与引用，再订单与卡密，保证不留下 issued 卡指向已删订单。
+    if (clearTradeAndInventory) {
+      recordDelete("order_items", await tx.delete(orderItems));
+      recordDelete("order_events", await tx.delete(orderEvents));
+      recordDelete("referral_events", await tx.delete(referralEvents));
+      recordDelete("balance_transactions", await tx.delete(balanceTransactions));
+      recordDelete("balance_recharge_orders", await tx.delete(balanceRechargeOrders));
+      recordDelete("card_logs", await tx.delete(cardLogs));
+      recordDelete("orders", await tx.delete(orders));
+      // S1：与订单一并清空全部卡密与批次，禁止留下悬空 issued/locked 引用。
+      recordDelete("cards", await tx.delete(cards));
+      recordDelete("user_balances", await tx.delete(userBalances));
+      recordDelete("voucher_codes", await tx.delete(voucherCodes));
+      recordDelete("campaigns", await tx.delete(campaigns));
+      recordDelete("referral_codes", await tx.delete(referralCodes));
+      recordDelete("coupons", await tx.delete(coupons));
+      recordDelete("card_batches", await tx.delete(cardBatches));
+    }
+
+    if (clearCatalogProducts) {
+      // full 才删商品。渠道定义 storefronts 始终保留。
+      // 映射必须显式 DELETE：SQLite/libSQL 连接默认不一定开启 foreign_keys，不能依赖 ON DELETE CASCADE。
+      // 尚未应用 0011 的库没有 storefront_products：Drizzle 会把 SQLITE_ERROR 包一层 “Failed query”，需沿 cause 链识别。
+      try {
+        recordDelete("storefront_products", await tx.delete(storefrontProducts));
+      } catch (error) {
+        const chain: string[] = [];
+        for (let current: unknown = error; current; current = (current as { cause?: unknown }).cause) {
+          chain.push(current instanceof Error ? current.message : String(current));
+          if (chain.length > 6) break;
+        }
+        if (!/no such table/i.test(chain.join("\n"))) throw error;
+      }
+      recordDelete("products", await tx.delete(products));
+    }
+
+    // 三档均清理日志与瞬态状态，并轮转审计凭证。
     recordDelete("request_logs", await tx.delete(requestLogs));
     recordDelete("email_logs", await tx.delete(emailLogs));
     recordDelete("rate_limit_windows", await tx.delete(rateLimitWindows));
@@ -2829,11 +2907,13 @@ export async function clearBusinessDataPreservingConfig(
       id: retainedAuditId,
       action: "clear_business_data",
       targetType: "database",
-      targetId: "business_data",
+      targetId: profile,
       metadataJson: JSON.stringify({
+        profile,
+        cardStrategy,
         deleted,
         tables,
-        reservedTables: CLEAR_BUSINESS_DATA_RESERVED_TABLES,
+        reservedTables,
       }),
       ipHash,
       createdAt: new Date().toISOString(),
@@ -2842,8 +2922,10 @@ export async function clearBusinessDataPreservingConfig(
     return {
       deleted,
       tables,
-      reservedTables: [...CLEAR_BUSINESS_DATA_RESERVED_TABLES],
+      reservedTables,
       retainedAuditId,
+      profile,
+      cardStrategy,
     };
   });
 }

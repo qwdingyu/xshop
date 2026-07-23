@@ -11,12 +11,17 @@ import {
   normalizeSystemConfigValue,
 } from "../lib/system-config-registry";
 import { writeAdminAudit } from "../services/audit-service";
-import { clearBusinessDataPreservingConfig, deleteSystemConfig, getSystemConfig, upsertSystemConfig } from "../services/admin-service";
+import {
+  CLEAR_BUSINESS_DATA_CONFIRMATIONS,
+  clearBusinessDataPreservingConfig,
+  deleteSystemConfig,
+  getSystemConfig,
+  upsertSystemConfig,
+  type ClearBusinessDataProfile,
+} from "../services/admin-service";
 import { isValidSecretEncryptionKey } from "../lib/secret-config";
 
 export const adminSystemConfigRoute = new Hono<AppEnv>();
-
-const CLEAR_BUSINESS_DATA_CONFIRMATION = "清除所有业务数据";
 
 adminSystemConfigRoute.get("/", async (c) => {
   const config = await getSystemConfig(getDb(c), c.env?.CREDENTIALS_ENCRYPTION_KEY);
@@ -93,17 +98,26 @@ adminSystemConfigRoute.put("/", async (c) => {
 });
 
 const clearBusinessDataSchema = z.object({
-  // 这里使用中文固定短语，与后台 UI 输入框一致。危险接口不能接受空 body 或布尔开关。
-  confirmation: z.literal(CLEAR_BUSINESS_DATA_CONFIRMATION),
+  // 档位与确认短语必须成对匹配；禁止仅靠布尔开关触发危险清理。
+  profile: z.enum(["runtime", "keep_catalog", "full"]).default("full"),
+  confirmation: z.string().trim().min(1).max(80),
   // 明确把“保留配置/系统参数”写进请求契约，防止未来误把接口语义改成全库清空。
   preserveConfigAndSystemParams: z.literal(true),
 });
 
 adminSystemConfigRoute.post("/clear-business-data", async (c) => {
   const body = clearBusinessDataSchema.safeParse(await safeJsonBody(c));
-  if (!body.success) return fail(c, "请明确确认清除所有业务数据", 400, body.error.flatten());
+  if (!body.success) {
+    return fail(c, "请选择清理档位并输入与档位一致的确认短语", 400, body.error.flatten());
+  }
 
-  const result = await clearBusinessDataPreservingConfig(getDb(c), await getIpHash(c));
+  const profile = body.data.profile as ClearBusinessDataProfile;
+  const expected = CLEAR_BUSINESS_DATA_CONFIRMATIONS[profile];
+  if (body.data.confirmation !== expected) {
+    return fail(c, `确认短语与档位「${profile}」不匹配，请输入：${expected}`, 400);
+  }
+
+  const result = await clearBusinessDataPreservingConfig(getDb(c), await getIpHash(c), { profile });
   return ok(c, result);
 });
 
