@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 export default defineConfig({
   resolve: {
     alias: {
+      // 前端模块使用 @/* → frontend/src/*（与 frontend/vite.config / tsconfig 对齐）
+      "@": fileURLToPath(new URL("./frontend/src", import.meta.url)),
       "@shared": fileURLToPath(new URL("./shared", import.meta.url)),
     },
   },

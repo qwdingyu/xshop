@@ -38,12 +38,10 @@ describe('admin commerce settings contract', () => {
 
   it('copies user-facing buy links only for a visible channel mapping', () => {
     expect(productsSource).toContain('copyProductBuyLink')
-    expect(productsSource).toContain('buildStorefrontProductBuyUrl')
-    expect(productsSource).toContain('resolveBuyLinkStorefront')
-    expect(productsSource).toContain('该商品未挂到任何可见渠道')
-    expect(productsSource).toContain('该商品挂在多个渠道，请先在上方筛选目标渠道再复制购买链接')
+    expect(productsSource).toContain('resolveAdminBuyLink')
+    expect(productsSource).toContain('adminBuyLinkFailureMessage')
     expect(storefrontsSource).toContain('copyProductBuyLink')
-    expect(storefrontsSource).toContain('buildStorefrontProductBuyUrl')
+    expect(storefrontsSource).toContain('resolveAdminBuyLink')
     expect(storefrontsSource).toContain('仅可为已选且可见的商品复制购买链接')
     // 禁止静默拼到无渠道 path
     expect(productsSource).not.toContain("'/product/'")

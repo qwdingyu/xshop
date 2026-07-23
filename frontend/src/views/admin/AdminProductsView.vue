@@ -453,7 +453,10 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import { writeClipboardText } from '@/composables/useClipboard'
 import { downloadCsv } from '@/lib/csv-export'
-import { buildStorefrontProductBuyUrl, productLinkKey } from '@/lib/storefront-product-link'
+import {
+  adminBuyLinkFailureMessage,
+  resolveAdminBuyLink,
+} from '@/lib/resolve-admin-buy-link'
 import {
   CURRENCY_CODES,
   formatMoney,
@@ -672,54 +675,39 @@ function productStorefronts(item: AdminProduct): NonNullable<AdminProduct['store
   return (item.storefrontIds || []).map(id => ({ id, name: storefrontName(id), visible: true, sortOrder: undefined }))
 }
 
-/** 仅「已分配且可见」的渠道可用于用户购买链接；禁止静默改道到其他渠道。 */
-function visibleProductStorefronts(item: AdminProduct) {
-  return productStorefronts(item).filter(storefront => storefront.visible !== false)
-}
-
 /**
- * 解析复制购买链接用的渠道：
- * - 已筛选渠道：必须在该渠道可见，否则拒绝
- * - 未筛选：仅当恰好一个可见渠道时可用；多个则要求先筛选
+ * 复制用户侧购买链接：闸门集中在 resolveAdminBuyLink（上架 + 可见映射 + 活跃渠道）。
+ * 禁止静默改道到其他渠道。
  */
-function resolveBuyLinkStorefront(item: AdminProduct): AdminStorefront | null {
-  const visible = visibleProductStorefronts(item)
-  if (filter.storefrontId) {
-    if (!visible.some(entry => entry.id === filter.storefrontId)) return null
-    return storefronts.value.find(entry => entry.id === filter.storefrontId) || null
-  }
-  if (visible.length !== 1) return null
-  return storefronts.value.find(entry => entry.id === visible[0].id) || null
-}
-
 async function copyProductBuyLink(item: AdminProduct) {
-  const visible = visibleProductStorefronts(item)
-  if (visible.length === 0) {
-    showToast('该商品未挂到任何可见渠道，请先在「展示渠道」中配置', 'error')
-    return
-  }
-  const target = resolveBuyLinkStorefront(item)
-  if (!target) {
-    showToast(
-      filter.storefrontId
-        ? '当前筛选渠道下该商品不可见，请更换渠道或调整映射后再复制'
-        : '该商品挂在多个渠道，请先在上方筛选目标渠道再复制购买链接',
-      'error',
-    )
-    return
-  }
-  if (!target.active) {
-    showToast('该渠道已停用，无法生成用户购买链接', 'error')
+  const resolved = resolveAdminBuyLink({
+    product: {
+      id: item.id,
+      slug: item.slug,
+      active: item.active,
+      storefronts: productStorefronts(item).map(entry => ({
+        id: entry.id,
+        name: entry.name,
+        visible: entry.visible,
+      })),
+      storefrontIds: item.storefrontIds,
+    },
+    filterStorefrontId: filter.storefrontId,
+    storefronts: storefronts.value.map(entry => ({
+      id: entry.id,
+      name: entry.name,
+      homePath: entry.homePath,
+      active: entry.active,
+    })),
+    origin: window.location.origin,
+  })
+  if (!resolved.ok) {
+    showToast(adminBuyLinkFailureMessage(resolved.reason), 'error')
     return
   }
   try {
-    const url = buildStorefrontProductBuyUrl(
-      window.location.origin,
-      target.homePath,
-      productLinkKey(item),
-    )
-    await writeClipboardText(url)
-    showToast(`已复制购买链接（${target.name}）`, 'success')
+    await writeClipboardText(resolved.url)
+    showToast(`已复制购买链接（${resolved.storefront.name}）`, 'success')
   } catch {
     showToast('复制购买链接失败', 'error')
   }

@@ -145,7 +145,7 @@
               class="btn btn-ghost btn-xs"
               type="button"
               title="复制该渠道下的用户购买链接"
-              :disabled="!row.selected || !row.visible || !currentStorefront?.active"
+              :disabled="!row.selected || !row.visible || !currentStorefront?.active || row.product.active === false"
               @click="copyProductBuyLink(row)"
             >
               购买链接
@@ -187,7 +187,10 @@ import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormat'
 import { writeClipboardText } from '@/composables/useClipboard'
-import { buildStorefrontProductBuyUrl, productLinkKey } from '@/lib/storefront-product-link'
+import {
+  adminBuyLinkFailureMessage,
+  resolveAdminBuyLink,
+} from '@/lib/resolve-admin-buy-link'
 
 type MappingRow = {
   product: AdminProduct
@@ -420,7 +423,11 @@ async function copyUrl(item: AdminStorefront) {
   }
 }
 
-/** 当前渠道内单商品购买链接；未选/不可见/渠道停用时拒绝，禁止改道其他渠道。 */
+/**
+ * 当前渠道内单商品购买链接。
+ * 编辑面板里的 selected/visible 是未保存草稿态：仅当已选且可见时才允许复制；
+ * 商品上架与渠道启用仍走 resolveAdminBuyLink 硬闸门。
+ */
 async function copyProductBuyLink(row: MappingRow) {
   const channel = currentStorefront.value
   if (!channel) return
@@ -428,17 +435,28 @@ async function copyProductBuyLink(row: MappingRow) {
     showToast('仅可为已选且可见的商品复制购买链接', 'error')
     return
   }
-  if (!channel.active) {
-    showToast('该渠道已停用，无法生成用户购买链接', 'error')
+  const resolved = resolveAdminBuyLink({
+    product: {
+      id: row.product.id,
+      slug: row.product.slug,
+      active: row.product.active,
+      storefronts: [{ id: channel.id, visible: true }],
+    },
+    filterStorefrontId: channel.id,
+    storefronts: [{
+      id: channel.id,
+      name: channel.name,
+      homePath: channel.homePath,
+      active: channel.active,
+    }],
+    origin: window.location.origin,
+  })
+  if (!resolved.ok) {
+    showToast(adminBuyLinkFailureMessage(resolved.reason), 'error')
     return
   }
   try {
-    const url = buildStorefrontProductBuyUrl(
-      window.location.origin,
-      channel.homePath,
-      productLinkKey(row.product),
-    )
-    await writeClipboardText(url)
+    await writeClipboardText(resolved.url)
     showToast('购买链接已复制', 'success')
   } catch {
     showToast('复制购买链接失败', 'error')

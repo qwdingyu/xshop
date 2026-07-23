@@ -49,6 +49,15 @@
         <span>自动发货或付款后处理</span>
         <span>{{ storefrontSupportEmail || '下单后按订单联系售后' }}</span>
       </div>
+
+      <div
+        v-if="deeplinkOpening"
+        class="deeplink-status"
+        role="status"
+        aria-live="polite"
+      >
+        正在打开商品…
+      </div>
     </div>
 
     <!-- Skeleton loading：compact 为行骨架，catalog 为卡片骨架 -->
@@ -122,7 +131,10 @@ import { fetchProductCatalog, fetchProductDetail } from '@/api'
 import { usePayment } from '@/composables/usePayment'
 import { useShopConfig } from '@/composables/useShopConfig'
 import { useToast } from '@/composables/useToast'
-import { productIsSoldOut } from '@/lib/storefront-stock'
+import {
+  buildOpenCheckoutFromFetchedProduct,
+  openCheckoutFailureMessage,
+} from '@/lib/open-storefront-checkout'
 import {
   parseProductDeeplinkQuery,
   stripProductDeeplinkQuery,
@@ -137,7 +149,10 @@ const router = useRouter()
 const products = ref<Product[]>([])
 const catalogCategories = ref<ProductCategory[]>([])
 const loading = ref(true)
-const refreshingStockId = ref('')
+/** 卡片/深链打开互斥：同一时刻只允许一个打开意图 */
+const openingProductId = ref('')
+/** 深链打开进行中（目录可能已出，弹窗尚未出现） */
+const deeplinkOpening = ref(false)
 const error = ref('')
 const searchQuery = ref('')
 const activeCategory = ref<string | null>(null)
@@ -254,27 +269,40 @@ async function scrubProductDeeplinkQuery() {
 /**
  * 渠道内单商品深链：仅当当前渠道上下文已就绪时打开现有 PayModal。
  * - 不跳转其他渠道
+ * - 成功路径仅一次 fetchProductDetail，再走 buildOpenCheckoutFromFetchedProduct
  * - 并发时只保留最后一次意图；成功/失败后 scrub query，避免刷新连环弹
- * - 走 handlePay，与点击卡片同一支付路径（不再另起收银台）
  */
 async function tryOpenProductDeeplink(storefrontId: string, storefrontSlug: string) {
   const productKey = parseProductDeeplinkQuery(route.query as Record<string, unknown>)
   if (!productKey) return
 
   const requestSequence = ++deeplinkRequestSequence
+  const openLockKey = `deeplink:${productKey}`
+  deeplinkOpening.value = true
 
   try {
+    if (openingProductId.value && openingProductId.value !== openLockKey) {
+      showToast('正在打开其他商品，请稍候再试', 'error')
+      return
+    }
+    // 占位互斥：详情返回前也挡住卡片连点；成功路径只 fetch 一次，不再进入 handlePay
+    openingProductId.value = openLockKey
     const latest = await fetchProductDetail(productKey, storefrontSlug)
     if (requestSequence !== deeplinkRequestSequence) return
     if (storefront.value?.id !== storefrontId) return
     upsertProduct(latest)
-    await handlePay(latest)
+    openPayFromFetchedProduct(latest, storefrontId)
   } catch (err: any) {
     if (requestSequence !== deeplinkRequestSequence) return
     if (storefront.value?.id !== storefrontId) return
     showToast(err?.message || '商品在当前渠道不可售或已下架', 'error')
   } finally {
+    // 仅释放本意图占用的锁，避免过期请求清掉新意图的锁
+    if (openingProductId.value === openLockKey) {
+      openingProductId.value = ''
+    }
     if (requestSequence === deeplinkRequestSequence) {
+      deeplinkOpening.value = false
       await scrubProductDeeplinkQuery()
     }
   }
@@ -302,6 +330,9 @@ function upsertProduct(nextProduct: Product) {
     // 公开商品接口会按展示策略主动删除精确库存字段；必须整体替换响应，
     // 不能与旧对象合并，否则被后端裁剪的 stock/isLowStock 会残留在当前页面。
     products.value[index] = nextProduct
+  } else {
+    // 深链命中的 SKU 若尚未出现在当前筛选列表，仍并入目录缓存，避免弹窗与列表脱节。
+    products.value = [...products.value, nextProduct]
   }
 }
 
@@ -309,63 +340,49 @@ async function refreshAfterPaymentClose() {
   await loadData()
 }
 
+/**
+ * 已拉取详情后的统一开单入口（深链与卡片共用决策层）。
+ * 不发起网络请求；调用方保证 product 来自当前渠道详情接口。
+ */
+function openPayFromFetchedProduct(product: Product, expectedStorefrontId: string): boolean {
+  const result = buildOpenCheckoutFromFetchedProduct(storefront.value, product, {
+    expectedStorefrontId,
+  })
+  if (!result.ok) {
+    showToast(openCheckoutFailureMessage(result.reason), 'error')
+    return false
+  }
+  open(result.payProduct)
+  return true
+}
+
+/** 卡片点击：拉一次详情 → 共用 openPayFromFetchedProduct */
 async function handlePay(product: Product) {
   const activeStorefront = storefront.value
-  if (refreshingStockId.value || !activeStorefront) return
-  refreshingStockId.value = product.id
-  let latest = product
+  if (!activeStorefront) {
+    showToast(openCheckoutFailureMessage('missing_storefront'), 'error')
+    return
+  }
+  if (openingProductId.value) {
+    showToast('正在打开商品，请稍候', 'error')
+    return
+  }
+  openingProductId.value = product.id
   try {
-    latest = await fetchProductDetail(product.id, activeStorefront.slug)
+    const latest = await fetchProductDetail(product.id, activeStorefront.slug)
     if (storefront.value?.id !== activeStorefront.id) {
-      refreshingStockId.value = ''
+      showToast(openCheckoutFailureMessage('channel_mismatch'), 'error')
       return
     }
     upsertProduct(latest)
+    openPayFromFetchedProduct(latest, activeStorefront.id)
   } catch (err: any) {
     showToast(err.message || '刷新库存失败，请稍后重试', 'error')
-    refreshingStockId.value = ''
-    return
+  } finally {
+    if (openingProductId.value === product.id) {
+      openingProductId.value = ''
+    }
   }
-
-  // 非精确库存模式不会返回 stock 字段，只能消费后端给出的可售状态，不能把“未公开”解释成 0。
-  if (productIsSoldOut(latest)) {
-    showToast('该商品已售罄', 'error')
-    refreshingStockId.value = ''
-    return
-  }
-  open({
-    storefrontId: activeStorefront.id,
-    storefrontSlug: activeStorefront.slug,
-    id: latest.id,
-    title: latest.name || latest.title,
-    priceCents: latest.priceCents,
-    currency: latest.currency,
-    coverUrl: latest.coverUrl,
-    name: latest.name,
-    originalPriceCents: latest.originalPriceCents,
-    stock: latest.stock,
-    availableStock: latest.availableStock,
-    requiresInventory: latest.requiresInventory,
-    canPurchase: latest.canPurchase,
-    isOutOfStock: latest.isOutOfStock,
-    isLowStock: latest.isLowStock,
-    description: latest.description,
-    salesCopy: latest.salesCopy,
-    tagsJson: latest.tagsJson,
-    issueMode: latest.issueMode,
-    category: latest.category,
-    purchaseLimit: latest.purchaseLimit,
-    sortOrder: latest.sortOrder,
-    active: latest.active,
-    fulfillmentMode: latest.fulfillmentMode,
-    deliveryVisibility: latest.deliveryVisibility,
-    stockDisplayMode: latest.stockDisplayMode,
-    fulfillmentInputType: latest.fulfillmentInputType,
-    fulfillmentInputLabel: latest.fulfillmentInputLabel,
-    fulfillmentInputHint: latest.fulfillmentInputHint,
-    fulfillmentInputRequired: latest.fulfillmentInputRequired,
-  })
-  refreshingStockId.value = ''
 }
 
 onMounted(() => {
@@ -414,6 +431,19 @@ watch(
   flex-direction: column;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+.deeplink-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--r-md);
+  border: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--tg-hint);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .shop-toolbar-main {

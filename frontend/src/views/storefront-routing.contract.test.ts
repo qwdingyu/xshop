@@ -51,18 +51,24 @@ describe('storefront routing contract', () => {
   })
 
   it('opens channel-scoped product deeplinks via the existing PayModal path only', () => {
-    // 渠道内 ?product= 深链：复用 handlePay，禁止另起收银台或跳转其他渠道。
+    // 渠道内 ?product= 深链：单次详情 + openPayFromFetchedProduct，禁止另起收银台或跳转其他渠道。
     expect(shopSource).toContain('tryOpenProductDeeplink')
     expect(shopSource).toContain('parseProductDeeplinkQuery')
     expect(shopSource).toContain('scrubProductDeeplinkQuery')
-    expect(shopSource).toContain('await handlePay(latest)')
+    expect(shopSource).toContain('openPayFromFetchedProduct')
+    expect(shopSource).toContain('buildOpenCheckoutFromFetchedProduct')
     expect(shopSource).toContain('fetchProductDetail(productKey, storefrontSlug)')
+    expect(shopSource).toContain('openPayFromFetchedProduct(latest, storefrontId)')
     expect(shopSource).toContain('void tryOpenProductDeeplink(catalog.storefront.id, catalog.storefront.slug)')
+    // 成功深链不得再委托 handlePay（否则二次详情请求）
+    expect(shopSource).not.toContain('await handlePay(latest)')
     // homePath 纠正必须保留推广 query
     expect(shopSource).toContain('const requestedQuery = { ...route.query }')
     expect(shopSource).toContain('query: requestedQuery')
     // 失败文案：当前渠道不可售，不暗示改道
     expect(shopSource).toContain('商品在当前渠道不可售或已下架')
+    expect(shopSource).toContain('正在打开商品…')
+    expect(shopSource).toContain('正在打开其他商品，请稍候再试')
     expect(shopSource).not.toContain('router.push({ path: \'/p/')
     expect(shopSource).not.toContain('path: `/product/')
   })
