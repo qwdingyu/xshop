@@ -98,7 +98,7 @@ import { useShopConfig } from '@/composables/useShopConfig'
 import { useToast } from '@/composables/useToast'
 import { copyText } from '@/composables/useClipboard'
 import { fieldLabel, getDeliveryEntries } from '@/composables/useDeliveryDisplay'
-import { normalizeOrderStatus, TERMINAL_ORDER_STATUSES } from '@shared/order-status'
+import { normalizeOrderStatus, TERMINAL_ORDER_STATUS_SET } from '@shared/order-status'
 import type { Order } from '@/types'
 
 const route = useRoute()
@@ -145,8 +145,9 @@ const deliveryFulfillmentMode = computed(() => {
 })
 const isCardDelivery = computed(() => deliveryFulfillmentMode.value === 'card' || Boolean(order.value?.cards?.length))
 
-const pollableStatuses = new Set(['pending', 'paid'])
-const terminalStatuses = new Set(TERMINAL_ORDER_STATUSES)
+// ReadonlySet<string>：normalize 返回 string，避免 Set 字面量联合类型导致 .has 报 TS2345
+const pollableStatuses: ReadonlySet<string> = new Set(['pending', 'paid'])
+const terminalStatuses: ReadonlySet<string> = TERMINAL_ORDER_STATUS_SET
 
 let orderPollTimer: ReturnType<typeof setInterval> | null = null
 let orderPollInFlight = false
