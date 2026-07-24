@@ -171,6 +171,8 @@ export type CreateProductInput = {
   coverUrl: string;
   tagsJson: string;
   priceCents: number;
+  /** 可选货架对比价；null 清除；不参与计费 */
+  originalPriceCents?: number | null;
   currency: string;
   issueMode: string;
   fulfillmentMode: string;
@@ -1537,6 +1539,7 @@ export async function getAdminProducts(
         title: products.title,
         description: products.description,
         priceCents: products.priceCents,
+        originalPriceCents: products.originalPriceCents,
         currency: products.currency,
         issueMode: products.issueMode,
         fulfillmentMode: products.fulfillmentMode,
@@ -1589,6 +1592,7 @@ export async function getAdminProducts(
       title: products.title,
       description: products.description,
       priceCents: products.priceCents,
+      originalPriceCents: products.originalPriceCents,
       currency: products.currency,
       issueMode: products.issueMode,
       fulfillmentMode: products.fulfillmentMode,
@@ -1761,14 +1765,29 @@ export async function checkProductExists(
 export async function getProductCommerceState(
   db: DbType,
   id: string,
-): Promise<{ currency: string; active: boolean } | null> {
+): Promise<{
+  currency: string;
+  active: boolean;
+  priceCents: number;
+  originalPriceCents: number | null;
+} | null> {
   const [row] = await db
-    .select({ currency: products.currency, active: products.active })
+    .select({
+      currency: products.currency,
+      active: products.active,
+      priceCents: products.priceCents,
+      originalPriceCents: products.originalPriceCents,
+    })
     .from(products)
     .where(eq(products.id, id))
     .limit(1);
   if (!row) return null;
-  return { currency: row.currency, active: activeFlag(row.active) };
+  return {
+    currency: row.currency,
+    active: activeFlag(row.active),
+    priceCents: Number(row.priceCents || 0),
+    originalPriceCents: row.originalPriceCents == null ? null : Number(row.originalPriceCents),
+  };
 }
 
 export async function createProduct(
@@ -1813,6 +1832,7 @@ export async function createProduct(
       coverUrl: input.coverUrl,
       tagsJson: input.tagsJson,
       priceCents: input.priceCents,
+      originalPriceCents: input.originalPriceCents ?? null,
       currency: input.currency,
       fulfillmentMode: input.fulfillmentMode || "card",
       issueMode: input.issueMode,
@@ -1868,6 +1888,9 @@ export async function updateProduct(
   if (input.coverUrl !== undefined) setValues["coverUrl"] = input.coverUrl;
   if (input.tagsJson !== undefined) setValues["tagsJson"] = input.tagsJson;
   if (input.priceCents !== undefined) setValues["priceCents"] = input.priceCents;
+  if (input.originalPriceCents !== undefined) {
+    setValues["originalPriceCents"] = input.originalPriceCents ?? null;
+  }
   if (input.currency !== undefined) setValues["currency"] = input.currency;
   if (input.issueMode !== undefined) setValues["issueMode"] = input.issueMode;
   if (input.fulfillmentMode !== undefined) setValues["fulfillmentMode"] = input.fulfillmentMode;
@@ -1903,6 +1926,7 @@ export async function duplicateProduct(
         title: products.title,
         description: products.description,
         priceCents: products.priceCents,
+        originalPriceCents: products.originalPriceCents,
         currency: products.currency,
         issueMode: products.issueMode,
         fulfillmentMode: products.fulfillmentMode,
@@ -1936,6 +1960,7 @@ export async function duplicateProduct(
       coverUrl: source.coverUrl,
       tagsJson: source.tagsJson,
       priceCents: source.priceCents,
+      originalPriceCents: source.originalPriceCents ?? null,
       currency: source.currency,
       fulfillmentMode: source.fulfillmentMode || "card",
       issueMode: source.issueMode,

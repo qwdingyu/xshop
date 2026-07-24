@@ -12,6 +12,8 @@ import { productCategories, products, storefrontProducts } from "../db/schema";
 import { getAvailableStockMap } from "./stock-service";
 import { normalizeFulfillmentInputConfig, type FulfillmentInputType } from "../../shared/fulfillment-input";
 import {
+  hasListDiscount,
+  normalizeOriginalPriceCents,
   type DeliveryVisibility,
   type StockDisplayMode,
 } from "../../shared/product-contract";
@@ -40,6 +42,8 @@ export type ProductRow = {
   coverUrl: string;
   tagsJson: string;
   priceCents: number;
+  /** 可选对比价；公开投影仅在 hasListDiscount 时输出 */
+  originalPriceCents?: number | null;
   currency: string;
   issueMode: IssueMode;
   fulfillmentMode: FulfillmentMode;
@@ -83,6 +87,10 @@ export function toPublicProduct(row: ProductRow) {
     salesCopy: row.salesCopy,
     coverUrl: row.coverUrl,
     priceCents: row.priceCents,
+    // 仅有效促销输出对比价，避免前端收到原价≤现价的脏数据
+    ...(hasListDiscount(row.priceCents, row.originalPriceCents)
+      ? { originalPriceCents: normalizeOriginalPriceCents(row.originalPriceCents) as number }
+      : {}),
     currency: row.currency,
     issueMode: row.issueMode,
     fulfillmentMode: row.fulfillmentMode,
@@ -132,6 +140,7 @@ const productSelect = {
       coverUrl: products.coverUrl,
       tagsJson: products.tagsJson,
       priceCents: products.priceCents,
+      originalPriceCents: products.originalPriceCents,
       currency: products.currency,
       issueMode: products.issueMode,
       fulfillmentMode: products.fulfillmentMode,
@@ -256,6 +265,7 @@ export async function getProduct(db: DbType, idOrSlug: string, storefrontId?: st
       coverUrl: products.coverUrl,
       tagsJson: products.tagsJson,
       priceCents: products.priceCents,
+      originalPriceCents: products.originalPriceCents,
       currency: products.currency,
       issueMode: products.issueMode,
       fulfillmentMode: products.fulfillmentMode,

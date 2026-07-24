@@ -23,7 +23,9 @@ describe('free product checkout UI contract', () => {
   })
 
   it('shows a semantic free price instead of a zero currency amount', () => {
-    expect(payModalSource).toContain("? '免费'")
-    expect(productCardSource).toContain("? '免费'")
+    // 免费文案由 buildListPriceDisplay / 共享规则产出；收银台与卡片均走该 helper
+    expect(payModalSource).toContain('buildListPriceDisplay')
+    expect(productCardSource).toContain('buildListPriceDisplay')
+    expect(payModalSource).toContain('listPriceDisplay')
   })
 })

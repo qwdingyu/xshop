@@ -814,6 +814,56 @@ describe("createOrder", () => {
     }
   });
 
+  it("bills selling price only when product has compare-at originalPriceCents", async () => {
+    // 货架对比价仅营销；下单 baseAmount / 报价 / 订单金额不得使用 originalPriceCents
+    mockGetProduct.mockResolvedValue({
+      id: "prod-promo",
+      title: "Promo Product",
+      priceCents: 200,
+      originalPriceCents: 500,
+      currency: "CNY",
+      issueMode: "manual",
+      fulfillmentMode: "card",
+    });
+    mockQuoteCoupon.mockResolvedValue({
+      couponCode: "",
+      valid: true,
+      discountCents: 0,
+      payableCents: 200,
+      message: "无折扣码，按原价购买",
+    });
+    const db = createMockDb({
+      cards: {
+        "card-promo": {
+          id: "card-promo",
+          status: "available",
+          accountLabel: "ACC",
+          deliverySecret: "SEC",
+          deliveryNote: "",
+          lockedOrderId: null,
+        },
+      },
+    });
+    const c = createMockContext(db);
+    const result = await createOrder(c, {
+      productId: "prod-promo",
+      buyerEmail: "promo@example.com",
+      quantity: 1,
+    }, "iphash123");
+
+    expect(result.ok).toBe(true);
+    expect(mockQuoteCoupon).toHaveBeenCalledWith(
+      expect.anything(),
+      200,
+      "prod-promo",
+      undefined,
+      "CNY",
+    );
+    if (result.ok) {
+      expect(result.order.amountCents).toBe(200);
+    }
+  });
+
   it("returns 400 when paid product is configured as direct mode", async () => {
     mockGetProduct.mockResolvedValue({
       id: "prod-direct",

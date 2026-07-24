@@ -41,11 +41,17 @@
             </div>
             <div class="confirm-meta">
               <h2 :id="titleId" class="confirm-title">{{ displayTitle }}</h2>
-              <div class="confirm-price-row">
+              <div
+                class="confirm-price-row"
+                :aria-label="priceDisplay.hasDiscount
+                  ? `现价 ${priceDisplay.priceLabel}，原价 ${priceDisplay.originalLabel}`
+                  : undefined"
+              >
                 <span class="confirm-price" :class="{ free: product.priceCents === 0 }">
-                  {{ priceLabel }}
+                  {{ priceDisplay.priceLabel }}
                 </span>
-                <span v-if="hasDiscount" class="confirm-original">{{ originalLabel }}</span>
+                <span v-if="priceDisplay.hasDiscount" class="confirm-original">{{ priceDisplay.originalLabel }}</span>
+                <span v-if="priceDisplay.saveLabel" class="confirm-save">{{ priceDisplay.saveLabel }}</span>
               </div>
               <div v-if="stockLabel || purchaseLimitLabel" class="confirm-stock-row">
                 <span v-if="stockLabel" class="confirm-stock" :class="{ out: isSoldOut, low: showsLowStock && !isSoldOut }">
@@ -102,7 +108,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import type { Product } from '@/types'
-import { formatPrice } from '@/composables/useFormat'
 import {
   productIsSoldOut,
   productPurchaseLimitLabel,
@@ -110,6 +115,7 @@ import {
   productStockLabel,
 } from '@/lib/storefront-stock'
 import { lockBodyScroll, unlockBodyScroll } from '@/lib/body-scroll-lock'
+import { buildListPriceDisplay } from '@/lib/product-price-display'
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -231,22 +237,12 @@ const isSoldOut = computed(() => (props.product ? productIsSoldOut(props.product
 const stockLabel = computed(() => (props.product ? productStockLabel(props.product) : ''))
 const purchaseLimitLabel = computed(() => (props.product ? productPurchaseLimitLabel(props.product) : ''))
 const showsLowStock = computed(() => (props.product ? productShowsLowStock(props.product) : false))
-const hasDiscount = computed(() => {
+const priceDisplay = computed(() => {
   const p = props.product
-  if (!p) return false
-  return (p.originalPriceCents ?? 0) > p.priceCents
-})
-
-const priceLabel = computed(() => {
-  const p = props.product
-  if (!p) return ''
-  return p.priceCents === 0 ? '免费' : formatPrice(p.priceCents, p.currency)
-})
-
-const originalLabel = computed(() => {
-  const p = props.product
-  if (!p?.originalPriceCents) return ''
-  return formatPrice(p.originalPriceCents, p.currency)
+  if (!p) {
+    return buildListPriceDisplay(0, 'CNY', null)
+  }
+  return buildListPriceDisplay(p.priceCents, p.currency, p.originalPriceCents)
 })
 
 /**
@@ -452,6 +448,13 @@ function emitClose() {
   font-size: 13px;
   color: var(--tg-hint);
   text-decoration: line-through;
+}
+
+.confirm-save {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--admin-success, #16a34a);
+  line-height: 1.2;
 }
 
 .confirm-stock-row {

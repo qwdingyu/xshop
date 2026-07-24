@@ -303,22 +303,36 @@
                     </select>
                   </label>
                   <label>
-                    <span>价格（{{ priceInputUnit }}）</span>
+                    <span>现价 / 售价（{{ priceInputUnit }}）</span>
                     <input
                       v-model.trim="form.priceMajor"
                       type="text"
                       :inputmode="currentCurrencyMeta.exponent === 0 ? 'numeric' : 'decimal'"
-                      :placeholder="currentCurrencyMeta.exponent === 0 ? '例如 500' : '例如 9.90'"
+                      :placeholder="currentCurrencyMeta.exponent === 0 ? '例如 500' : '例如 2.00'"
                       required
+                    />
+                  </label>
+                  <label class="field-span-2">
+                    <span>划线原价（选填，{{ priceInputUnit }}）</span>
+                    <input
+                      v-model.trim="form.originalPriceMajor"
+                      type="text"
+                      :inputmode="currentCurrencyMeta.exponent === 0 ? 'numeric' : 'decimal'"
+                      :placeholder="currentCurrencyMeta.exponent === 0 ? '例如 500，留空表示不促销' : '例如 5.00，留空表示不促销'"
                     />
                   </label>
                 </div>
                 <p v-if="pricePreview" class="price-preview-line">
                   保存后展示 <strong>{{ pricePreview }}</strong>
+                  <template v-if="originalPricePreview">
+                    <span class="price-preview-original">{{ originalPricePreview }}</span>
+                    <span v-if="promoPreviewHint" class="price-preview-save">{{ promoPreviewHint }}</span>
+                  </template>
                 </p>
                 <small class="field-hint">{{ currencyPaymentHint }}</small>
+                <small class="field-hint">划线原价仅用于店面促销展示，必须高于现价；不参与下单计费。优惠码是下单时再减一刀，与此处无关。</small>
                 <p v-if="isFreeProductPrice" class="inline-callout">
-                  免费商品前台每次领取 1 件，不展示支付、余额、折扣与数量。活动建议设「每邮箱限购 1 次」。
+                  免费商品前台每次领取 1 件，不展示支付、余额、折扣与数量。活动建议设「每邮箱限购 1 次」。填写划线原价可展示「限免」角标。
                 </p>
               </div>
             </div>
@@ -516,6 +530,8 @@ type ProductForm = {
   description: string
   coverUrl: string
   priceMajor: string
+  /** 划线原价主单位；空字符串 = 不设置促销 */
+  originalPriceMajor: string
   currency: CurrencyCode
   category: string
   fulfillmentMode: string
@@ -537,6 +553,7 @@ const form = reactive<ProductForm>({
   description: '',
   coverUrl: '',
   priceMajor: '0.00',
+  originalPriceMajor: '',
   currency: 'CNY' as CurrencyCode,
   category: '',
   fulfillmentMode: 'card',
@@ -568,6 +585,31 @@ const priceInputUnit = computed(() => {
 const pricePreview = computed(() => {
   try {
     return formatMoney(parseMajorToMinor(form.priceMajor, form.currency), form.currency)
+  } catch {
+    return ''
+  }
+})
+const originalPricePreview = computed(() => {
+  const raw = form.originalPriceMajor.trim()
+  if (!raw) return ''
+  try {
+    const price = parseMajorToMinor(form.priceMajor, form.currency)
+    const original = parseMajorToMinor(raw, form.currency)
+    if (original <= 0 || original <= price) return ''
+    return formatMoney(original, form.currency)
+  } catch {
+    return ''
+  }
+})
+const promoPreviewHint = computed(() => {
+  const raw = form.originalPriceMajor.trim()
+  if (!raw) return ''
+  try {
+    const price = parseMajorToMinor(form.priceMajor, form.currency)
+    const original = parseMajorToMinor(raw, form.currency)
+    if (original <= price) return '（划线原价须高于现价）'
+    const save = original - price
+    return `· 省 ${formatMoney(save, form.currency)}`
   } catch {
     return ''
   }
@@ -810,6 +852,9 @@ function openDialog(item?: AdminProduct) {
       description: item.description || '',
       coverUrl: item.coverUrl || '',
       priceMajor: minorToMajorString(item.priceCents, currency),
+      originalPriceMajor: item.originalPriceCents != null && item.originalPriceCents > 0
+        ? minorToMajorString(item.originalPriceCents, currency)
+        : '',
       currency,
       category: item.category || '',
       fulfillmentMode: item.fulfillmentMode || 'card',
@@ -834,6 +879,7 @@ function openDialog(item?: AdminProduct) {
       description: '',
       coverUrl: '',
       priceMajor: '0.00',
+      originalPriceMajor: '',
       currency: 'CNY',
       category: '',
       fulfillmentMode: 'card',
@@ -885,11 +931,27 @@ async function uploadCoverImage(event: Event) {
 async function save() {
   if (saving.value || uploadingCover.value) return
   let priceCents: number
+  let originalPriceCents: number | null = null
   try {
     priceCents = parseMajorToMinor(form.priceMajor, form.currency)
   } catch (err) {
     showToast(err instanceof Error ? `价格格式无效：${err.message}` : '价格格式无效', 'error')
     return
+  }
+  const originalRaw = form.originalPriceMajor.trim()
+  if (originalRaw) {
+    try {
+      originalPriceCents = parseMajorToMinor(originalRaw, form.currency)
+    } catch (err) {
+      showToast(err instanceof Error ? `划线原价格式无效：${err.message}` : '划线原价格式无效', 'error')
+      return
+    }
+    if (originalPriceCents <= 0) {
+      originalPriceCents = null
+    } else if (originalPriceCents <= priceCents) {
+      showToast('划线原价必须高于现价', 'error')
+      return
+    }
   }
   if (form.currency !== 'CNY' && form.active) {
     showToast('当前支付链路仅支持 CNY，非 CNY 商品必须保持下架', 'error')
@@ -904,6 +966,7 @@ async function save() {
       description: form.description,
       coverUrl: form.coverUrl,
       priceCents,
+      originalPriceCents,
       currency: form.currency,
       category: form.category,
       fulfillmentMode: form.fulfillmentMode,
@@ -1253,6 +1316,18 @@ watch(() => form.coverUrl, () => {
 .price-preview-line strong {
   font-weight: 600;
   color: var(--admin-accent-text, #fbbf24);
+}
+
+.price-preview-original {
+  margin-left: 8px;
+  color: var(--tg-hint, #9ca3af);
+  text-decoration: line-through;
+}
+
+.price-preview-save {
+  margin-left: 6px;
+  color: var(--admin-success, #6ee7b7);
+  font-weight: 600;
 }
 
 .inline-callout {

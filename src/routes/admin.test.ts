@@ -20,6 +20,7 @@ const createProductCategory = vi.fn();
 const checkProductExists = vi.fn();
 const getProductCommerceState = vi.fn();
 const createProduct = vi.fn();
+const updateProduct = vi.fn();
 const duplicateProduct = vi.fn();
 const upsertCoupon = vi.fn();
 const getMergedLogs = vi.fn();
@@ -60,7 +61,7 @@ vi.mock("../services/admin-service", () => ({
   getProductCommerceState: (...args: unknown[]) => getProductCommerceState(...args),
   createProduct: (...args: unknown[]) => createProduct(...args),
   duplicateProduct: (...args: unknown[]) => duplicateProduct(...args),
-  updateProduct: vi.fn(),
+  updateProduct: (...args: unknown[]) => updateProduct(...args),
   upsertCoupon: (...args: unknown[]) => upsertCoupon(...args),
   generateCoupon: vi.fn(),
   updateCoupon: vi.fn(),
@@ -1007,6 +1008,91 @@ describe("adminRoute products endpoint", () => {
     expect(createProduct).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ title: "新商品" }));
   });
 
+  it("accepts compare-at originalPriceCents when strictly above selling price", async () => {
+    createProduct.mockResolvedValue("promo-product");
+
+    const res = await createApp().request("/api/admin/products", {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      // 现价 2 元、对比价 5 元：仅营销展示，不参与计费
+      body: JSON.stringify({ title: "促销商品", priceCents: 200, originalPriceCents: 500 }),
+    }, { ADMIN_TOKEN: "token" });
+
+    expect(res.status).toBe(201);
+    expect(createProduct).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      priceCents: 200,
+      originalPriceCents: 500,
+    }));
+  });
+
+  it("rejects create when originalPriceCents is not higher than priceCents", async () => {
+    const res = await createApp().request("/api/admin/products", {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "脏对比价", priceCents: 500, originalPriceCents: 500 }),
+    }, { ADMIN_TOKEN: "token" });
+
+    expect(res.status).toBe(400);
+    expect(createProduct).not.toHaveBeenCalled();
+  });
+
+  it("normalizes zero originalPriceCents to null on create", async () => {
+    createProduct.mockResolvedValue("no-promo-product");
+
+    const res = await createApp().request("/api/admin/products", {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "无促销", priceCents: 200, originalPriceCents: 0 }),
+    }, { ADMIN_TOKEN: "token" });
+
+    expect(res.status).toBe(201);
+    expect(createProduct).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      priceCents: 200,
+      originalPriceCents: null,
+    }));
+  });
+
+  it("rejects patch when next price would exceed stored compare-at price", async () => {
+    getProductCommerceState.mockResolvedValue({
+      currency: "CNY",
+      active: true,
+      priceCents: 200,
+      originalPriceCents: 500,
+    });
+
+    const res = await createApp().request("/api/admin/products/promo-1", {
+      method: "PATCH",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({ priceCents: 600 }),
+    }, { ADMIN_TOKEN: "token" });
+    const body = await res.json() as { details?: { code?: string }; error?: string };
+
+    expect(res.status).toBe(400);
+    expect(body.details?.code).toBe("PRODUCT_ORIGINAL_PRICE_INVALID");
+    expect(updateProduct).not.toHaveBeenCalled();
+  });
+
+  it("allows clearing compare-at price via null on patch", async () => {
+    getProductCommerceState.mockResolvedValue({
+      currency: "CNY",
+      active: true,
+      priceCents: 200,
+      originalPriceCents: 500,
+    });
+    updateProduct.mockResolvedValue(undefined);
+
+    const res = await createApp().request("/api/admin/products/promo-1", {
+      method: "PATCH",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({ originalPriceCents: null }),
+    }, { ADMIN_TOKEN: "token" });
+
+    expect(res.status).toBe(200);
+    expect(updateProduct).toHaveBeenCalledWith(expect.anything(), "promo-1", expect.objectContaining({
+      originalPriceCents: null,
+    }));
+  });
+
   it("accepts HTTPS and same-origin relative product cover URLs", async () => {
     createProduct.mockResolvedValue("covered-product");
 
@@ -1080,7 +1166,12 @@ describe("adminRoute products endpoint", () => {
   });
 
   it("does not re-enable an existing non-CNY draft through an active-only patch", async () => {
-    getProductCommerceState.mockResolvedValue({ currency: "USD", active: false });
+    getProductCommerceState.mockResolvedValue({
+      currency: "USD",
+      active: false,
+      priceCents: 1000,
+      originalPriceCents: null,
+    });
 
     const res = await createApp().request("/api/admin/products/usd-draft", {
       method: "PATCH",

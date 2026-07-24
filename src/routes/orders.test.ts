@@ -125,6 +125,36 @@ describe("POST /coupons/quote", () => {
     });
   });
 
+  it("quotes from selling price only when product has compare-at originalPriceCents", async () => {
+    // 对比价不得进入折扣码 baseAmount
+    productServiceMocks.getProduct.mockResolvedValueOnce({
+      id: "prod-promo",
+      priceCents: 200,
+      originalPriceCents: 500,
+      currency: "CNY",
+    });
+
+    const res = await createApp().request("/api/coupons/quote", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        productId: "prod-promo",
+        storefrontId: "sf_default",
+        quantity: 3,
+        couponCode: "SAVE",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(couponServiceMocks.quoteCoupon).toHaveBeenCalledWith(
+      expect.anything(),
+      600,
+      "prod-promo",
+      "SAVE",
+      "CNY",
+    );
+  });
+
   it("uses the explicit storefront when quoting a product", async () => {
     const softwareStorefront = {
       ...defaultStorefront,

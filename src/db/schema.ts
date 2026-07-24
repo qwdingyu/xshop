@@ -40,6 +40,8 @@ export const products = sqliteTable("products", {
   coverUrl: text("cover_url").default("").notNull(),
   tagsJson: text("tags_json").default("[]").notNull(),
   priceCents: integer("price_cents").default(0).notNull(),
+  /** 货架对比价（划线原价）；null/不设 = 无促销展示；不参与计费 */
+  originalPriceCents: integer("original_price_cents"),
   currency: text("currency").default("CNY").notNull(),
   fulfillmentMode: text("fulfillment_mode").default("card").notNull(),
   issueMode: text("issue_mode").default("direct").notNull(),

@@ -36,6 +36,7 @@ describe("toPublicProduct", () => {
     expect(result.slug).toBe("my-product");
     expect(result.title).toBe("Test Product");
     expect(result.priceCents).toBe(5000);
+    expect(result).not.toHaveProperty("originalPriceCents");
     expect(result.currency).toBe("CNY");
     expect(result.issueMode).toBe("manual");
     expect(result.fulfillmentMode).toBe("card");
@@ -44,6 +45,18 @@ describe("toPublicProduct", () => {
     expect(result.category).toBe("software");
     expect(result.purchaseLimitDisplay).toBe(false);
     expect(result.deliveryVisibility).toBe("web_and_email");
+  });
+
+  it("publishes originalPriceCents only when it is a valid list discount", () => {
+    const withPromo = toPublicProduct({ ...baseRow, priceCents: 200, originalPriceCents: 500 });
+    expect(withPromo.priceCents).toBe(200);
+    expect(withPromo.originalPriceCents).toBe(500);
+
+    const equal = toPublicProduct({ ...baseRow, priceCents: 500, originalPriceCents: 500 });
+    expect(equal).not.toHaveProperty("originalPriceCents");
+
+    const below = toPublicProduct({ ...baseRow, priceCents: 500, originalPriceCents: 100 });
+    expect(below).not.toHaveProperty("originalPriceCents");
   });
 
   it("publishes the purchase-limit display switch separately from the limit value", () => {

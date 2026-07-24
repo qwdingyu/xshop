@@ -26,13 +26,22 @@
       <div class="cover-badges" aria-hidden="true">
         <span v-if="isSoldOut" class="stock-badge empty">已售罄</span>
         <span v-else-if="showsLowStock" class="stock-badge low">库存紧张</span>
-        <span v-if="hasDiscount" class="stock-badge discount">折扣</span>
+        <span v-if="priceDisplay.hasDiscount && priceDisplay.badgeLabel" class="stock-badge discount">
+          {{ priceDisplay.badgeLabel }}
+        </span>
       </div>
     </div>
 
     <!-- Info -->
     <div class="product-info">
-      <h3 class="product-title">{{ product.title }}</h3>
+      <div class="product-title-row">
+        <h3 class="product-title">{{ product.title }}</h3>
+        <!-- compact 无封面时封面角标不可见：标题旁补促销标 -->
+        <span
+          v-if="displayMode === 'compact' && !showCover && priceDisplay.hasDiscount && priceDisplay.badgeLabel"
+          class="inline-discount-badge"
+        >{{ priceDisplay.badgeLabel }}</span>
+      </div>
       <!-- 空描述不占位；过长由 line-clamp 截断，完整说明在支付前确认层 -->
       <div v-if="cardDescription" class="product-desc">{{ cardDescription }}</div>
       <div class="product-tags">
@@ -41,10 +50,15 @@
         <span v-if="product.category" class="product-tag product-tag-muted">{{ product.category }}</span>
       </div>
       <div class="product-footer">
-        <div class="product-price-block">
-          <span class="product-price" :class="{ 'is-free': product.priceCents === 0 }">{{ displayPrice }}</span>
-          <span v-if="hasDiscount" class="product-original-price">
-            {{ originalPrice }}
+        <div
+          class="product-price-block"
+          :aria-label="priceDisplay.hasDiscount
+            ? `现价 ${priceDisplay.priceLabel}，原价 ${priceDisplay.originalLabel}`
+            : undefined"
+        >
+          <span class="product-price" :class="{ 'is-free': product.priceCents === 0 }">{{ priceDisplay.priceLabel }}</span>
+          <span v-if="priceDisplay.hasDiscount" class="product-original-price">
+            {{ priceDisplay.originalLabel }}
           </span>
         </div>
         <div class="product-status-action">
@@ -66,7 +80,7 @@
 import { computed, ref, watch } from 'vue'
 import type { Product } from '@/types'
 import { productIsSoldOut, productPurchaseLimitLabel, productShowsLowStock, productStockLabel } from '@/lib/storefront-stock'
-import { formatPrice } from '@/composables/useFormat'
+import { buildListPriceDisplay } from '@/lib/product-price-display'
 
 const props = withDefaults(defineProps<{
   product: Product
@@ -88,12 +102,13 @@ const emit = defineEmits<{
 
 /** catalog 始终展示封面区；compact 仅有 coverUrl 时展示缩略图 */
 const showCover = computed(() => displayMode.value === 'catalog' || Boolean(props.product.coverUrl))
-const hasDiscount = computed(() => (props.product.originalPriceCents ?? 0) > props.product.priceCents)
 
-const displayPrice = computed(() => props.product.priceCents === 0
-  ? '免费'
-  : formatPrice(props.product.priceCents, props.product.currency))
-const originalPrice = computed(() => formatPrice(props.product.originalPriceCents ?? 0, props.product.currency))
+/** 货架促销：现价 + 划线原价 + 角标（规则见 shared product-contract） */
+const priceDisplay = computed(() => buildListPriceDisplay(
+  props.product.priceCents,
+  props.product.currency,
+  props.product.originalPriceCents,
+))
 
 /** 卡片仅展示公开短描述；空白不占行高 */
 const cardDescription = computed(() => {
@@ -302,7 +317,17 @@ function handleClick() {
   flex: 1;
 }
 
+.product-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
 .product-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.35;
@@ -311,6 +336,18 @@ function handleClick() {
   -webkit-box-orient: vertical;
   overflow: hidden;
   color: var(--tg-text);
+}
+
+.inline-discount-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--r-full);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--admin-success, #6ee7b7) 78%, #0f172a);
+  color: #fff;
 }
 
 .product-desc {

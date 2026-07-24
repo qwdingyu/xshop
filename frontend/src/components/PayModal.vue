@@ -47,8 +47,15 @@
                 </div>
                 <div class="summary-info">
                   <div class="summary-title">{{ product.title }}</div>
-                  <div class="summary-price">
-                    {{ productPriceLabel }}
+                  <div
+                    class="summary-price-row"
+                    :aria-label="listPriceDisplay.hasDiscount
+                      ? `现价 ${listPriceDisplay.priceLabel}，原价 ${listPriceDisplay.originalLabel}`
+                      : undefined"
+                  >
+                    <span class="summary-price">{{ listPriceDisplay.priceLabel }}</span>
+                    <span v-if="listPriceDisplay.hasDiscount" class="summary-original">{{ listPriceDisplay.originalLabel }}</span>
+                    <span v-if="listPriceDisplay.saveLabel" class="summary-save">{{ listPriceDisplay.saveLabel }}</span>
                   </div>
                 </div>
               </div>
@@ -453,6 +460,7 @@ import type { Delivery } from '@/types'
 import type { PublicPaymentMethod } from '@/api'
 import { normalizeFulfillmentInputConfig, resolveCheckoutFulfillmentInput } from '@shared/fulfillment-input'
 import { lockBodyScroll, unlockBodyScroll } from '@/lib/body-scroll-lock'
+import { buildListPriceDisplay } from '@/lib/product-price-display'
 
 const { isTelegram, isMobile } = usePlatform()
 const { showBackButton, hideBackButton } = useTelegram()
@@ -523,9 +531,13 @@ const fulfillmentInputHint = computed(() => fulfillmentInputConfig.value.hint)
 /** 基础价格免费与优惠后 0 元必须分开；只有前者使用精简领取界面。 */
 const isBasePriceFreeProduct = computed(() => isBasePriceFree(product.value.priceCents))
 const effectiveQuantity = computed(() => isBasePriceFreeProduct.value ? 1 : quantity.value)
-const productPriceLabel = computed(() => isBasePriceFreeProduct.value
-  ? '免费'
-  : formatPrice(product.value.priceCents, product.value.currency))
+/** 摘要区促销展示；计费仍只用 priceCents */
+const listPriceDisplay = computed(() => buildListPriceDisplay(
+  product.value.priceCents,
+  product.value.currency,
+  product.value.originalPriceCents,
+))
+const productPriceLabel = computed(() => listPriceDisplay.value.priceLabel)
 const quantityHint = computed(() => {
   const displayedLimit = productPurchaseLimitLabel(product.value)
   if (displayedLimit) return displayedLimit
@@ -1487,10 +1499,33 @@ onUnmounted(() => {
   -webkit-box-orient: vertical;
 }
 
+.summary-price-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
 .summary-price {
   font-size: 15px;
   font-weight: 700;
   color: var(--tg-btn);
+  line-height: 1.25;
+}
+
+.summary-original {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tg-hint);
+  text-decoration: line-through;
+  line-height: 1.25;
+}
+
+.summary-save {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--admin-success, #16a34a);
   line-height: 1.25;
 }
 

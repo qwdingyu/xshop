@@ -122,6 +122,12 @@ describe('product confirm sheet contract', () => {
     expect(confirmSource).toContain('展开全部')
   })
 
+  it('surfaces list discount via shared price display (compare-at)', () => {
+    expect(confirmSource).toContain("from '@/lib/product-price-display'")
+    expect(confirmSource).toContain('buildListPriceDisplay')
+    expect(confirmSource).toContain('confirm-save')
+  })
+
   it('locks body scroll and traps focus while open', () => {
     // 与 PayModal 共用 body-scroll-lock（引用计数 + 滚动条补偿）
     expect(confirmSource).toContain("from '@/lib/body-scroll-lock'")

@@ -1187,6 +1187,54 @@ describe("POST /pay/unified", () => {
     expect(fulfillmentServiceMocks.lockFulfillmentInventoryItems).not.toHaveBeenCalled();
   });
 
+  it("quotes unified pay from selling price when product has compare-at originalPriceCents", async () => {
+    // 现价 2 元、对比价 5 元：报价 baseAmount 必须是 200×qty，绝不能是 500
+    couponServiceMocks.quoteCoupon.mockResolvedValue({
+      couponCode: "",
+      valid: true,
+      discountCents: 0,
+      payableCents: 400,
+      message: "无折扣码，按原价购买",
+    });
+    const { app } = createUnifiedPayApp({
+      product: { priceCents: 200, originalPriceCents: 500, stock: 10 },
+    });
+
+    await app.request("/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ quantity: 2 })),
+    }, {});
+
+    expect(couponServiceMocks.quoteCoupon).toHaveBeenCalledWith(
+      expect.anything(),
+      400,
+      "prod-1",
+      "",
+      "CNY",
+    );
+    // 确认调用参数里从未出现对比价 500 作为 baseAmount
+    const quoteArgs = couponServiceMocks.quoteCoupon.mock.calls[0] as unknown[];
+    expect(quoteArgs[1]).toBe(400);
+    expect(quoteArgs[1]).not.toBe(500);
+    expect(quoteArgs[1]).not.toBe(1000);
+  });
+
+  it("does not quote coupons for free products even when compare-at originalPriceCents is set", async () => {
+    // 限免：price=0 + original>0 仍是免费领取语义，不得走优惠码报价
+    const { app } = createUnifiedPayApp({
+      product: { priceCents: 0, originalPriceCents: 500, issueMode: "direct", fulfillmentMode: "virtual", salesCopy: "领取内容" },
+    });
+
+    await app.request("/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ couponCode: "SHOULD_IGNORE" })),
+    }, {});
+
+    expect(couponServiceMocks.quoteCoupon).not.toHaveBeenCalled();
+  });
+
   it("rejects a missing required fulfillment input before reserving inventory", async () => {
     const { app, idempotencyState } = createUnifiedPayApp({
       product: {

@@ -27,6 +27,8 @@ export interface AdminProduct {
   title: string
   description?: string
   priceCents: number
+  /** 货架对比价；仅展示，不参与计费 */
+  originalPriceCents?: number | null
   currency?: string
   active?: boolean
   category?: string

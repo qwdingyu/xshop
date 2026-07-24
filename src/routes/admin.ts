@@ -5,6 +5,8 @@ import { FULFILLMENT_INPUT_TYPES } from "../../shared/fulfillment-input";
 import {
   DELIVERY_VISIBILITIES,
   STOCK_DISPLAY_MODES,
+  normalizeOriginalPriceCents,
+  validateOriginalPriceCents,
 } from "../../shared/product-contract";
 import {
   FULFILLMENT_PROGRESS_STAGES,
@@ -209,6 +211,14 @@ const productSchema = insertProductSchema.extend({
   coverUrl: productCoverUrlSchema.default(""),
   tagsJson: z.string().trim().max(2000).default("[]"),
   priceCents: z.number().int().min(0).max(999999),
+  // 货架对比价：null/省略 = 无促销；0 与空一并规范为 null；有效时必须 > priceCents
+  originalPriceCents: z.preprocess(
+    (value) => {
+      if (value === undefined) return undefined;
+      return normalizeOriginalPriceCents(value);
+    },
+    z.number().int().min(1).max(999999).nullable().optional(),
+  ),
   currency: z.preprocess(
     (value) => typeof value === "string" ? value.trim().toUpperCase() : value,
     z.enum(CURRENCY_CODES),
@@ -227,6 +237,8 @@ const productSchema = insertProductSchema.extend({
   fulfillmentInputHint: z.string().trim().max(200).default(""),
   fulfillmentInputRequired: z.boolean().default(false),
 });
+// 注意：不要在 productSchema 上 superRefine——ZodEffects 无法 .extend()/.partial()。
+// 创建：createProductSchema 交叉校验；PATCH：路由结合库内 price/original 校验。
 
 const createProductSchema = productSchema.extend({
   // 省略时由服务层绑定当前默认渠道；显式 [] 表示创建未分配草稿。
@@ -235,6 +247,16 @@ const createProductSchema = productSchema.extend({
   const storefrontIds = (value as { storefrontIds?: unknown }).storefrontIds;
   if (Array.isArray(storefrontIds) && new Set(storefrontIds).size !== storefrontIds.length) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["storefrontIds"], message: "展示渠道不能重复" });
+  }
+  // 创建时 priceCents 必填；有对比价则必须严格高于现价
+  // insertProductSchema 扩展后 superRefine 入参类型偏宽，显式收窄
+  const priceCents = Number(value.priceCents);
+  const originalPriceCents = value.originalPriceCents as number | null | undefined;
+  if (originalPriceCents != null && Number.isFinite(priceCents)) {
+    const err = validateOriginalPriceCents(priceCents, originalPriceCents);
+    if (err) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["originalPriceCents"], message: err });
+    }
   }
 });
 
@@ -1050,6 +1072,17 @@ adminRoute.patch("/products/:id", async (c) => {
   const db = getDb(c);
   const state = await getProductCommerceState(db, id);
   if (!state) return fail(c, "商品不存在", 404);
+  // partial 更新时对照库内现价/对比价，禁止「现价涨过原价」或「原价≤现价」脏数据
+  if (data.priceCents !== undefined || data.originalPriceCents !== undefined) {
+    const nextPrice = data.priceCents !== undefined ? data.priceCents : state.priceCents;
+    const nextOriginal = data.originalPriceCents !== undefined
+      ? (data.originalPriceCents ?? null)
+      : state.originalPriceCents;
+    const originalErr = validateOriginalPriceCents(nextPrice, nextOriginal);
+    if (originalErr) {
+      return fail(c, originalErr, 400, { code: "PRODUCT_ORIGINAL_PRICE_INVALID" });
+    }
+  }
   const nextCurrency = data.currency || state.currency;
   const nextActive = data.active === undefined ? state.active : data.active;
   if (nextCurrency !== "CNY" && nextActive) {
