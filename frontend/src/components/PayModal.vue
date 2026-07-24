@@ -452,6 +452,7 @@ import DeliveryInfo from '@/components/DeliveryInfo.vue'
 import type { Delivery } from '@/types'
 import type { PublicPaymentMethod } from '@/api'
 import { normalizeFulfillmentInputConfig, resolveCheckoutFulfillmentInput } from '@shared/fulfillment-input'
+import { lockBodyScroll, unlockBodyScroll } from '@/lib/body-scroll-lock'
 
 const { isTelegram, isMobile } = usePlatform()
 const { showBackButton, hideBackButton } = useTelegram()
@@ -1135,23 +1136,21 @@ const resultIcon = computed(() => {
   return icons[resultStatus.value] || '⟳'
 })
 
-// ── Navigation / chrome（滚动锁 + Esc；不改支付状态机）──
+// ── Navigation / chrome（共享滚动锁 + Esc；不改支付状态机）──
 
-let previousBodyOverflow = ''
-let bodyScrollLocked = false
+/** 本实例是否已向共享 body 锁 acquire 过（防重复 lock/unlock） */
+let holdsBodyScrollLock = false
 
-function lockBodyScroll() {
-  if (bodyScrollLocked || typeof document === 'undefined') return
-  previousBodyOverflow = document.body.style.overflow
-  document.body.style.overflow = 'hidden'
-  bodyScrollLocked = true
+function acquireBodyScrollLock() {
+  if (holdsBodyScrollLock) return
+  lockBodyScroll()
+  holdsBodyScrollLock = true
 }
 
-function unlockBodyScroll() {
-  if (!bodyScrollLocked || typeof document === 'undefined') return
-  document.body.style.overflow = previousBodyOverflow
-  previousBodyOverflow = ''
-  bodyScrollLocked = false
+function releaseBodyScrollLock() {
+  if (!holdsBodyScrollLock) return
+  unlockBodyScroll()
+  holdsBodyScrollLock = false
 }
 
 /**
@@ -1258,7 +1257,8 @@ watch(isVisible, (vis) => {
   if (vis) {
     restorePendingAttemptSelection()
     loadPaymentCapabilities()
-    lockBodyScroll()
+    // 确认层 → 收银台：ShopView 先关确认再 open；共享引用计数使 handoff 期间不断锁
+    acquireBodyScrollLock()
     if (typeof window !== 'undefined') {
       window.addEventListener('keydown', onPayKeydown, true)
     }
@@ -1268,7 +1268,7 @@ watch(isVisible, (vis) => {
     if (typeof window !== 'undefined') {
       window.removeEventListener('keydown', onPayKeydown, true)
     }
-    unlockBodyScroll()
+    releaseBodyScrollLock()
   }
 })
 
@@ -1278,7 +1278,7 @@ onUnmounted(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('keydown', onPayKeydown, true)
   }
-  unlockBodyScroll()
+  releaseBodyScrollLock()
 })
 
 

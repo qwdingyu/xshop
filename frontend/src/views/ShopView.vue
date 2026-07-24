@@ -133,7 +133,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ProductCard from '@/components/ProductCard.vue'
 import ProductConfirmSheet from '@/components/ProductConfirmSheet.vue'
@@ -240,17 +240,26 @@ function clearFilters() {
   activeCategory.value = null
 }
 
-async function loadData() {
+/**
+ * 拉取店面目录。
+ * - 默认：骨架 + 清空上下文（首进/手动刷新/切渠道）
+ * - silent：后台更新商品列表，不骨架、不清渠道、不关确认层、不重跑深链
+ *   用于 payment:closed / products:refresh，避免遮罩下底层闪烁
+ */
+async function loadData(options?: { silent?: boolean }) {
+  const silent = options?.silent === true
   const requestSequence = ++catalogRequestSequence
   const storefrontSlug = requestedStorefrontSlug.value
   const requestedRoutePath = route.path
   // 纠正 homePath 时必须保留推广 query（含 product），禁止丢参。
   const requestedQuery = { ...route.query }
-  loading.value = true
-  error.value = ''
-  // 重载目录时关闭确认层，避免旧 SKU 与新渠道/目录错位
-  closeProductConfirm()
-  clearStorefront()
+  if (!silent) {
+    loading.value = true
+    error.value = ''
+    // 重载目录时关闭确认层，避免旧 SKU 与新渠道/目录错位
+    closeProductConfirm()
+    clearStorefront()
+  }
   try {
     const catalog = await fetchProductCatalog(storefrontSlug ? { storefront: storefrontSlug } : undefined)
     // 路由快速切换时，只有最后一次请求可以更新页面与品牌上下文。
@@ -266,15 +275,21 @@ async function loadData() {
     setStorefront(catalog.storefront)
     products.value = catalog.products
     catalogCategories.value = catalog.categories
-    // 目录就绪后尝试消费 ?product= 深链（失败不跳转其他渠道）。
-    void tryOpenProductDeeplink(catalog.storefront.id, catalog.storefront.slug)
+    // 静默刷新不重跑深链，避免支付中途或关窗后连环弹确认层
+    if (!silent) {
+      void tryOpenProductDeeplink(catalog.storefront.id, catalog.storefront.slug)
+    }
   } catch (err: unknown) {
     if (requestSequence !== catalogRequestSequence || route.path !== requestedRoutePath) return
+    if (silent) {
+      // 保留现有列表与渠道；失败不骨架、不 blank 目录
+      return
+    }
     products.value = []
     catalogCategories.value = []
     error.value = err instanceof Error ? err.message : '加载商品失败'
   } finally {
-    if (requestSequence === catalogRequestSequence) loading.value = false
+    if (!silent && requestSequence === catalogRequestSequence) loading.value = false
   }
 }
 
@@ -384,8 +399,9 @@ function upsertProduct(nextProduct: Product) {
   }
 }
 
-async function refreshAfterPaymentClose() {
-  await loadData()
+/** 收银台关闭 / 库存变更：静默刷新目录，禁止骨架闪底层 */
+async function refreshCatalogSilently() {
+  await loadData({ silent: true })
 }
 
 /**
@@ -411,7 +427,7 @@ function closeProductConfirm() {
 }
 
 /** 确认层 → 现有 PayModal（不二次拉详情；售罄由 builder 拒绝） */
-function buyFromConfirm() {
+async function buyFromConfirm() {
   const product = confirmProduct.value
   const activeStorefront = storefront.value
   if (!product || !activeStorefront) {
@@ -425,9 +441,10 @@ function buyFromConfirm() {
     showToast(openCheckoutFailureMessage(result.reason), 'error')
     return
   }
-  // 进入收银台后收起确认层，避免与 PayModal 双层叠态（Esc 误关底层等）
-  closeProductConfirm()
+  // 先开收银台并等一帧让 Pay 完成 body 锁 acquire，再关确认层 release：引用计数 handoff 不断锁
   open(result.payProduct)
+  await nextTick()
+  closeProductConfirm()
 }
 
 /** 确认层复制购买链：与 Admin 同契约 origin + homePath + ?product= */
@@ -488,16 +505,16 @@ async function handleOpenProduct(product: Product) {
 }
 
 onMounted(() => {
-  window.addEventListener('payment:closed', refreshAfterPaymentClose)
-  window.addEventListener('products:refresh', refreshAfterPaymentClose)
+  window.addEventListener('payment:closed', refreshCatalogSilently)
+  window.addEventListener('products:refresh', refreshCatalogSilently)
   document.addEventListener('visibilitychange', refreshConfigWhenVisible)
 })
 
 onUnmounted(() => {
   catalogRequestSequence += 1
   deeplinkRequestSequence += 1
-  window.removeEventListener('payment:closed', refreshAfterPaymentClose)
-  window.removeEventListener('products:refresh', refreshAfterPaymentClose)
+  window.removeEventListener('payment:closed', refreshCatalogSilently)
+  window.removeEventListener('products:refresh', refreshCatalogSilently)
   document.removeEventListener('visibilitychange', refreshConfigWhenVisible)
 })
 

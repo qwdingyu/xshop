@@ -77,11 +77,16 @@ describe('storefront routing contract', () => {
     expect(shopSource).toContain('void tryOpenProductDeeplink(catalog.storefront.id, catalog.storefront.slug)')
     // 重载目录关闭确认层，避免旧 SKU 错位
     expect(shopSource).toContain('closeProductConfirm()')
-    // 成功路径：确认层打开；购买仅从确认层进 PayModal，不二次拉详情；进支付前收起确认层
-    expect(shopSource).toContain('function buyFromConfirm')
-    expect(shopSource).toContain('closeProductConfirm()')
+    // 成功路径：确认层打开；购买仅从确认层进 PayModal，不二次拉详情；
+    // 先 open 再 nextTick 再关确认层，保证共享 body 锁 handoff 不断锁
+    expect(shopSource).toContain('async function buyFromConfirm')
     expect(shopSource).toContain('open(result.payProduct)')
+    expect(shopSource).toContain('await nextTick()')
+    expect(shopSource).toContain('closeProductConfirm()')
     expect(shopSource).not.toContain('await handlePay(latest)')
+    // 关收银台 / 库存刷新走静默目录拉取，禁止骨架闪底层
+    expect(shopSource).toContain("loadData({ silent: true })")
+    expect(shopSource).toContain('refreshCatalogSilently')
     // 卡片与深链均先确认，禁止 happy path 直开支付
     expect(shopSource).toContain('handleOpenProduct')
     expect(shopSource).toContain('@pay="handleOpenProduct"')
@@ -118,7 +123,9 @@ describe('product confirm sheet contract', () => {
   })
 
   it('locks body scroll and traps focus while open', () => {
-    expect(confirmSource).toContain("document.body.style.overflow = 'hidden'")
+    // 与 PayModal 共用 body-scroll-lock（引用计数 + 滚动条补偿）
+    expect(confirmSource).toContain("from '@/lib/body-scroll-lock'")
+    expect(confirmSource).toContain('acquireBodyScrollLock')
     expect(confirmSource).toContain("event.key === 'Escape'")
     expect(confirmSource).toContain("event.key !== 'Tab'")
     expect(confirmSource).toContain('buyBtnEl')
@@ -141,7 +148,8 @@ describe('pay modal checkout chrome contract', () => {
   it('keeps title-then-subtitle hierarchy, aria-current, topbar close, scroll lock and Esc', () => {
     expect(paySource).toContain('class="pay-topbar"')
     expect(paySource).toContain(":aria-current=\"currentStepDot === index ? 'step' : undefined\"")
-    expect(paySource).toContain("document.body.style.overflow = 'hidden'")
+    expect(paySource).toContain("from '@/lib/body-scroll-lock'")
+    expect(paySource).toContain('acquireBodyScrollLock')
     expect(paySource).toContain("event.key !== 'Escape'")
     // 各 step-header 均为 title 在前、subtitle 在后（禁止副标题压在主标题上）
     const headers = [...paySource.matchAll(/<div class="step-header">([\s\S]*?)<\/div>/g)].map((m) => m[1])

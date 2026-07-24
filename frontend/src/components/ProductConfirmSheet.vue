@@ -109,6 +109,7 @@ import {
   productShowsLowStock,
   productStockLabel,
 } from '@/lib/storefront-stock'
+import { lockBodyScroll, unlockBodyScroll } from '@/lib/body-scroll-lock'
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -134,8 +135,8 @@ const descExpanded = ref(false)
 const DESC_FOLD_CHARS = 220
 
 let previousActive: HTMLElement | null = null
-let previousBodyOverflow = ''
-let scrollLocked = false
+/** 本实例是否已向共享 body 锁 acquire 过（防重复 lock/unlock） */
+let holdsBodyScrollLock = false
 
 watch(() => props.product?.coverUrl, () => {
   imageFailed.value = false
@@ -145,18 +146,16 @@ watch(() => props.product?.id, () => {
   descExpanded.value = false
 })
 
-function lockBodyScroll() {
-  if (scrollLocked || typeof document === 'undefined') return
-  previousBodyOverflow = document.body.style.overflow
-  document.body.style.overflow = 'hidden'
-  scrollLocked = true
+function acquireBodyScrollLock() {
+  if (holdsBodyScrollLock) return
+  lockBodyScroll()
+  holdsBodyScrollLock = true
 }
 
-function unlockBodyScroll() {
-  if (!scrollLocked || typeof document === 'undefined') return
-  document.body.style.overflow = previousBodyOverflow
-  previousBodyOverflow = ''
-  scrollLocked = false
+function releaseBodyScrollLock() {
+  if (!holdsBodyScrollLock) return
+  unlockBodyScroll()
+  holdsBodyScrollLock = false
 }
 
 function restoreFocus() {
@@ -202,7 +201,7 @@ function onKeydown(event: KeyboardEvent) {
 watch(() => props.visible, async (open) => {
   if (open) {
     previousActive = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    lockBodyScroll()
+    acquireBodyScrollLock()
     window.addEventListener('keydown', onKeydown, true)
     await nextTick()
     // 可购优先主按钮；售罄聚焦关闭，避免焦点落在禁用购买上
@@ -212,14 +211,14 @@ watch(() => props.visible, async (open) => {
     preferred?.focus({ preventScroll: true })
   } else {
     window.removeEventListener('keydown', onKeydown, true)
-    unlockBodyScroll()
+    releaseBodyScrollLock()
     restoreFocus()
   }
 }, { immediate: true })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown, true)
-  unlockBodyScroll()
+  releaseBodyScrollLock()
 })
 
 const displayTitle = computed(() => {
