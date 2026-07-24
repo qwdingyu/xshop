@@ -13,6 +13,7 @@ import { checkProductPurchaseLimitForQuantity, deliveryVisibilityPayload } from 
 import { createOrderNo, createOrderToken, hashOrderToken } from "../lib/token";
 import { orders, orderItems } from "../db/schema";
 import { readRuntimeConfig, mergeRuntimeConfig } from "../lib/runtime-config";
+import { effectivePurchaseLimitForProduct } from "../../shared/checkout-policy";
 
 const redeemSchema = z.object({
   couponCode: z.string().trim().min(2).max(80),
@@ -73,11 +74,12 @@ redeemRoute.post("/redeem", async (c) => {
   }
 
   const normalizedBuyerEmail = body.data.buyerEmail.trim().toLowerCase();
+  const effectiveLimit = effectivePurchaseLimitForProduct(product.priceCents, product.purchaseLimit);
   const purchaseLimit = await checkProductPurchaseLimitForQuantity(
     db,
     normalizedBuyerEmail,
     product.id,
-    product.purchaseLimit,
+    effectiveLimit,
     1,
   );
   if (!purchaseLimit.ok) {
@@ -110,7 +112,7 @@ redeemRoute.post("/redeem", async (c) => {
         tx,
         normalizedBuyerEmail,
         product.id,
-        product.purchaseLimit,
+        effectiveLimit,
         1,
       );
       if (!transactionalLimit.ok) {

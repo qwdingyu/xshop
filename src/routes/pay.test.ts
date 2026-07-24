@@ -26,6 +26,7 @@ const orderServiceMocks = {
   markPaidAndIssue: vi.fn(),
   checkAndExpireOrder: vi.fn(),
   checkOrderRateLimit: vi.fn(),
+  checkFreeClaimOrderRateLimit: vi.fn(),
   checkBalanceOrderRateLimit: vi.fn(),
   checkProductPurchaseLimitForQuantity: vi.fn(),
   deliveryVisibilityPayload: vi.fn((input: { deliveryVisibility?: string | null; buyerEmail?: string | null; status?: string | null }) => {
@@ -102,6 +103,7 @@ vi.mock("../services/voucher-service", () => ({
 vi.mock("../services/order-service", () => ({
   checkAndExpireOrder: (...args: unknown[]) => orderServiceMocks.checkAndExpireOrder(...args),
   checkOrderRateLimit: (...args: unknown[]) => orderServiceMocks.checkOrderRateLimit(...args),
+  checkFreeClaimOrderRateLimit: (...args: unknown[]) => orderServiceMocks.checkFreeClaimOrderRateLimit(...args),
   checkBalanceOrderRateLimit: (...args: unknown[]) => orderServiceMocks.checkBalanceOrderRateLimit(...args),
   checkProductPurchaseLimitForQuantity: (...args: unknown[]) => orderServiceMocks.checkProductPurchaseLimitForQuantity(...args),
   deliveryVisibilityPayload: (input: { deliveryVisibility?: string | null; buyerEmail?: string | null; status?: string | null }) => orderServiceMocks.deliveryVisibilityPayload(input),
@@ -915,13 +917,33 @@ describe("handleInternalSettlement", () => {
 });
 
 describe("POST /pay/unified", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    const { readRuntimeConfig, mergeRuntimeConfig } = await import("../lib/runtime-config");
+    vi.mocked(readRuntimeConfig).mockReset().mockResolvedValue({
+      resendApiKey: "",
+      emailFrom: "",
+      turnstileEnabled: false,
+      turnstileSecretKey: "",
+      allowTurnstileBypassForSmoke: false,
+    });
+    vi.mocked(mergeRuntimeConfig).mockReset().mockImplementation((
+      dbConfig: Record<string, unknown>,
+      env: Record<string, unknown> = {},
+    ) => ({
+      ...dbConfig,
+      resendApiKey: dbConfig.resendApiKey || env.RESEND_API_KEY || "",
+      emailFrom: dbConfig.emailFrom || env.EMAIL_FROM || "",
+      allowTurnstileBypassForSmoke:
+        dbConfig.allowTurnstileBypassForSmoke || env.ALLOW_TURNSTILE_BYPASS_FOR_SMOKE === "true",
+    }));
     storefrontServiceMocks.resolvePublicStorefront.mockResolvedValue(defaultStorefront);
     storefrontServiceMocks.getActiveStorefrontById.mockResolvedValue(defaultStorefront);
     storefrontServiceMocks.validateStorefrontProductMapping.mockResolvedValue(defaultStorefront);
     paymentProviderMocks.selectOnline.mockReturnValue(null);
+    vi.mocked(enforceRateLimit).mockReset().mockResolvedValue({ ok: true, ipHash: "ip-hash" });
     orderServiceMocks.checkOrderRateLimit.mockResolvedValue({ ok: true });
+    orderServiceMocks.checkFreeClaimOrderRateLimit.mockResolvedValue({ ok: true });
     orderServiceMocks.checkBalanceOrderRateLimit.mockResolvedValue({ ok: true });
     orderServiceMocks.checkProductPurchaseLimitForQuantity.mockReset().mockResolvedValue({ ok: true });
     systemConfigMocks.getOrderExpireMinutes.mockResolvedValue(30);
@@ -1222,6 +1244,14 @@ describe("POST /pay/unified", () => {
 
   it("does not quote coupons for free products even when compare-at originalPriceCents is set", async () => {
     // 限免：price=0 + original>0 仍是免费领取语义，不得走优惠码报价
+    const { readRuntimeConfig } = await import("../lib/runtime-config");
+    vi.mocked(readRuntimeConfig).mockResolvedValue({
+      resendApiKey: "re_test",
+      emailFrom: "shop@example.com",
+      turnstileEnabled: false,
+      turnstileSecretKey: "",
+      allowTurnstileBypassForSmoke: false,
+    } as never);
     const { app } = createUnifiedPayApp({
       product: { priceCents: 0, originalPriceCents: 500, issueMode: "direct", fulfillmentMode: "virtual", salesCopy: "领取内容" },
     });
@@ -1229,8 +1259,8 @@ describe("POST /pay/unified", () => {
     await app.request("/api/pay/unified", {
       method: "POST",
       headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
-      body: JSON.stringify(unifiedPayPayload({ couponCode: "SHOULD_IGNORE" })),
-    }, {});
+      body: JSON.stringify(unifiedPayPayload({ couponCode: "SHOULD_IGNORE", emailAccessCode: "123456" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
 
     expect(couponServiceMocks.quoteCoupon).not.toHaveBeenCalled();
   });
@@ -1587,26 +1617,44 @@ describe("POST /pay/unified", () => {
   it.each([
     {
       name: "一次领取多件",
-      payload: { quantity: 2 },
+      payload: { quantity: 2, emailAccessCode: "123456" },
       code: "FREE_PRODUCT_QUANTITY_INVALID",
+      status: 400,
     },
     {
       name: "携带优惠码",
-      payload: { couponCode: "FREE100" },
+      payload: { couponCode: "FREE100", emailAccessCode: "123456" },
       code: "FREE_PRODUCT_COUPON_UNSUPPORTED",
+      status: 400,
     },
     {
       name: "指定在线支付方式",
-      payload: { paymentChannel: "alipay" },
+      payload: { paymentChannel: "alipay", emailAccessCode: "123456" },
       code: "FREE_PRODUCT_PAYMENT_METHOD_UNSUPPORTED",
+      status: 400,
     },
     {
       name: "指定余额支付",
       payload: { balancePayment: true, emailAccessCode: "123456" },
       code: "FREE_PRODUCT_PAYMENT_METHOD_UNSUPPORTED",
+      status: 400,
     },
-  ])("rejects base-free product requests that bypass the simplified checkout: $name", async ({ payload, code }) => {
+    {
+      name: "缺少邮箱验证码",
+      payload: {},
+      code: "EMAIL_VERIFICATION_REQUIRED",
+      status: 403,
+    },
+  ])("rejects base-free product requests that bypass the simplified checkout: $name", async ({ payload, code, status }) => {
     const { app, idempotencyState } = createUnifiedPayApp({ product: { priceCents: 0 } });
+    const { readRuntimeConfig } = await import("../lib/runtime-config");
+    vi.mocked(readRuntimeConfig).mockResolvedValueOnce({
+      resendApiKey: "re_test",
+      emailFrom: "shop@example.com",
+      turnstileEnabled: false,
+      turnstileSecretKey: "",
+      allowTurnstileBypassForSmoke: false,
+    } as never);
 
     const res = await app.request("https://shop.example.com/api/pay/unified", {
       method: "POST",
@@ -1615,7 +1663,7 @@ describe("POST /pay/unified", () => {
     }, { ADMIN_TOKEN: "admin-secret" });
     const body = await res.json() as { ok: boolean; details?: { code?: string } };
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(status);
     expect(body.ok).toBe(false);
     expect(body.details?.code).toBe(code);
     expect(idempotencyState.clearedPending).toBe(true);
@@ -1625,6 +1673,61 @@ describe("POST /pay/unified", () => {
     expect(paymentProviderMocks.createPayment).not.toHaveBeenCalled();
     expect(fulfillmentServiceMocks.lockFulfillmentInventoryItems).not.toHaveBeenCalled();
   });
+
+  it("rejects free claim when mailbox verification fails", async () => {
+    emailAccessMocks.verifyEmailAccessCode.mockResolvedValueOnce(false);
+    const { readRuntimeConfig } = await import("../lib/runtime-config");
+    vi.mocked(readRuntimeConfig).mockResolvedValueOnce({
+      resendApiKey: "re_test",
+      emailFrom: "shop@example.com",
+      turnstileEnabled: false,
+      turnstileSecretKey: "",
+      allowTurnstileBypassForSmoke: false,
+    } as never);
+    const { app, idempotencyState } = createUnifiedPayApp({ product: { priceCents: 0 } });
+
+    const res = await app.request("https://shop.example.com/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ emailAccessCode: "123456" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
+    const body = await res.json() as { ok: boolean; details?: { code?: string } };
+
+    expect(res.status).toBe(403);
+    expect(body.ok).toBe(false);
+    expect(body.details?.code).toBe("EMAIL_VERIFICATION_REQUIRED");
+    expect(idempotencyState.clearedPending).toBe(true);
+    expect(emailAccessMocks.verifyEmailAccessCode).toHaveBeenCalled();
+    expect(fulfillmentServiceMocks.lockFulfillmentInventoryItems).not.toHaveBeenCalled();
+  });
+
+  it("rejects free claim when mail service is not configured", async () => {
+    const { app, idempotencyState } = createUnifiedPayApp({ product: { priceCents: 0 } });
+
+    const res = await app.request("https://shop.example.com/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ emailAccessCode: "123456" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
+    const body = await res.json() as { ok: boolean; details?: { code?: string } };
+
+    expect(res.status).toBe(503);
+    expect(body.ok).toBe(false);
+    expect(body.details?.code).toBe("EMAIL_REQUIRED_FOR_FREE_CLAIM");
+    expect(idempotencyState.clearedPending).toBe(true);
+    expect(emailAccessMocks.verifyEmailAccessCode).not.toHaveBeenCalled();
+  });
+
+  async function enableFreeClaimMail() {
+    const { readRuntimeConfig } = await import("../lib/runtime-config");
+    vi.mocked(readRuntimeConfig).mockResolvedValue({
+      resendApiKey: "re_test",
+      emailFrom: "shop@example.com",
+      turnstileEnabled: false,
+      turnstileSecretKey: "",
+      allowTurnstileBypassForSmoke: false,
+    } as never);
+  }
 
   it("issues a base-free product once without quoting coupons or invoking a payment provider", async () => {
     fulfillmentServiceMocks.lockFulfillmentInventoryItems.mockResolvedValueOnce({
@@ -1636,13 +1739,14 @@ describe("POST /pay/unified", () => {
       card: { id: "card-1", accountLabel: "FREE-ACC", deliverySecret: "FREE-SECRET", deliveryNote: "" },
       cards: [{ id: "card-1", accountLabel: "FREE-ACC", deliverySecret: "FREE-SECRET", deliveryNote: "" }],
     });
-    const { app } = createUnifiedPayApp({ product: { priceCents: 0, purchaseLimit: 1 } });
+    await enableFreeClaimMail();
+    const { app } = createUnifiedPayApp({ product: { priceCents: 0, purchaseLimit: null } });
 
     const res = await app.request("https://shop.example.com/api/pay/unified", {
       method: "POST",
       headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
-      body: JSON.stringify(unifiedPayPayload()),
-    }, {});
+      body: JSON.stringify(unifiedPayPayload({ emailAccessCode: "123456" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
     const body = await res.json() as {
       ok: boolean;
       mode: string;
@@ -1659,7 +1763,22 @@ describe("POST /pay/unified", () => {
     expect(body.amountCents).toBe(0);
     expect(body.quantity).toBe(1);
     expect(body.delivery).toMatchObject({ deliverySecret: "SECRET-1" });
-    expect(orderServiceMocks.checkOrderRateLimit).toHaveBeenCalledWith(expect.anything(), "buyer@example.com", "prod-1");
+    expect(emailAccessMocks.verifyEmailAccessCode).toHaveBeenCalledWith(
+      "buyer@example.com",
+      "123456",
+      expect.any(String),
+    );
+    expect(enforceRateLimit).toHaveBeenCalledWith(expect.anything(), "free_claim", 3, {
+      windowSeconds: 3600,
+      message: "免费领取过于频繁，请一小时后再试",
+    });
+    expect(orderServiceMocks.checkFreeClaimOrderRateLimit).toHaveBeenCalledWith(
+      expect.anything(),
+      "buyer@example.com",
+      "prod-1",
+    );
+    expect(orderServiceMocks.checkOrderRateLimit).not.toHaveBeenCalled();
+    // 免费商品未配置限购时后端兜底为 1
     expect(orderServiceMocks.checkProductPurchaseLimitForQuantity).toHaveBeenCalledWith(
       expect.anything(),
       "buyer@example.com",
@@ -1680,6 +1799,165 @@ describe("POST /pay/unified", () => {
     expect(paymentProviderMocks.createPayment).not.toHaveBeenCalled();
     expect(voucherServiceMocks.getUserBalance).not.toHaveBeenCalled();
     expect(voucherServiceMocks.deductBalance).not.toHaveBeenCalled();
+  });
+
+  it("rejects free claim when email access secret is unavailable even if resend is configured", async () => {
+    await enableFreeClaimMail();
+    const { app, idempotencyState } = createUnifiedPayApp({ product: { priceCents: 0 } });
+
+    const res = await app.request("https://shop.example.com/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ emailAccessCode: "123456" })),
+    }, {
+      // 生产域名 + 默认 dev secret 会被 getEmailAccessSecret 拒绝
+      ADMIN_TOKEN: "dev-only-change-me",
+    });
+    const body = await res.json() as { ok: boolean; details?: { code?: string } };
+
+    expect(res.status).toBe(503);
+    expect(body.ok).toBe(false);
+    expect(body.details?.code).toBe("EMAIL_ACCESS_UNAVAILABLE");
+    expect(idempotencyState.clearedPending).toBe(true);
+    expect(emailAccessMocks.verifyEmailAccessCode).not.toHaveBeenCalled();
+    expect(fulfillmentServiceMocks.lockFulfillmentInventoryItems).not.toHaveBeenCalled();
+  });
+
+  it("rejects free claim when free_claim IP rate limit is exceeded", async () => {
+    await enableFreeClaimMail();
+    vi.mocked(enforceRateLimit).mockImplementation(async (_c, action: string) => {
+      if (action === "free_claim") {
+        return { ok: false, status: 429, message: "免费领取过于频繁", ipHash: "ip-hash" };
+      }
+      return { ok: true, ipHash: "ip-hash" };
+    });
+    const { app, idempotencyState } = createUnifiedPayApp({ product: { priceCents: 0 } });
+
+    const res = await app.request("https://shop.example.com/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ emailAccessCode: "123456" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
+    const body = await res.json() as { ok: boolean; error?: string };
+
+    expect(res.status).toBe(429);
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain("频繁");
+    expect(idempotencyState.clearedPending).toBe(true);
+    expect(emailAccessMocks.verifyEmailAccessCode).not.toHaveBeenCalled();
+  });
+
+  it("rejects free claim when free-claim mailbox rate limit is exceeded", async () => {
+    await enableFreeClaimMail();
+    orderServiceMocks.checkFreeClaimOrderRateLimit.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      message: "该邮箱免费领取过于频繁，请 5 分钟后再试",
+    });
+    const { app, idempotencyState } = createUnifiedPayApp({ product: { priceCents: 0 } });
+
+    const res = await app.request("https://shop.example.com/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ emailAccessCode: "123456" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
+    const body = await res.json() as { ok: boolean; error?: string };
+
+    expect(res.status).toBe(429);
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain("免费领取过于频繁");
+    expect(idempotencyState.clearedPending).toBe(true);
+    expect(fulfillmentServiceMocks.lockFulfillmentInventoryItems).not.toHaveBeenCalled();
+  });
+
+  it("rejects free claim when default purchase limit of 1 is already reached", async () => {
+    await enableFreeClaimMail();
+    orderServiceMocks.checkProductPurchaseLimitForQuantity.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      message: "该商品每人限购 1 件，您已达到上限",
+    });
+    const { app, idempotencyState } = createUnifiedPayApp({ product: { priceCents: 0, purchaseLimit: null } });
+
+    const res = await app.request("https://shop.example.com/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ emailAccessCode: "123456" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
+    const body = await res.json() as { ok: boolean; error?: string };
+
+    expect(res.status).toBe(429);
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain("限购 1 件");
+    expect(orderServiceMocks.checkProductPurchaseLimitForQuantity).toHaveBeenCalledWith(
+      expect.anything(),
+      "buyer@example.com",
+      "prod-1",
+      1,
+      1,
+    );
+    expect(idempotencyState.clearedPending).toBe(true);
+    expect(fulfillmentServiceMocks.lockFulfillmentInventoryItems).not.toHaveBeenCalled();
+  });
+
+  it("respects an explicit free-product purchaseLimit greater than the default", async () => {
+    await enableFreeClaimMail();
+    fulfillmentServiceMocks.lockFulfillmentInventoryItems.mockResolvedValueOnce({
+      mode: "virtual",
+      inventoryIds: [],
+    });
+    orderServiceMocks.markPaidAndIssue.mockResolvedValueOnce({
+      ok: true,
+      card: null,
+      cards: [],
+    });
+    const { app } = createUnifiedPayApp({
+      product: { priceCents: 0, purchaseLimit: 5, fulfillmentMode: "virtual", salesCopy: "领取文案" },
+    });
+
+    const res = await app.request("https://shop.example.com/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ emailAccessCode: "654321" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
+
+    expect(res.status).toBe(200);
+    expect(orderServiceMocks.checkProductPurchaseLimitForQuantity).toHaveBeenCalledWith(
+      expect.anything(),
+      "buyer@example.com",
+      "prod-1",
+      5,
+      1,
+    );
+  });
+
+  it("does not require email access code for paid products using online payment", async () => {
+    fulfillmentServiceMocks.lockFulfillmentInventoryItems.mockResolvedValueOnce({
+      mode: "card",
+      inventoryIds: ["card-1"],
+    });
+    paymentProviderMocks.createPayment.mockResolvedValueOnce({
+      qrCode: "https://pay.example.test/qr.png",
+      redirectUrl: "https://pay.example.test/pay",
+      raw: { payType: "alipay" },
+    });
+    paymentProviderMocks.selectOnline.mockReturnValueOnce({
+      name: "easypay",
+      createPayment: (...args: unknown[]) => paymentProviderMocks.createPayment(...args),
+    });
+    const { app } = createUnifiedPayApp({ product: { priceCents: 1200 } });
+
+    const res = await app.request("https://shop.example.com/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ paymentChannel: "alipay" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
+
+    expect(res.status).toBe(200);
+    expect(emailAccessMocks.verifyEmailAccessCode).not.toHaveBeenCalled();
+    expect(orderServiceMocks.checkFreeClaimOrderRateLimit).not.toHaveBeenCalled();
+    expect(orderServiceMocks.checkOrderRateLimit).toHaveBeenCalled();
+    expect(enforceRateLimit).not.toHaveBeenCalledWith(expect.anything(), "free_claim", 3);
   });
 
   it("forces authorized admin smoke orders through the deterministic offline branch", async () => {
@@ -2118,6 +2396,84 @@ describe("POST /pay/unified", () => {
     expect(res.status).toBe(403);
     expect(fulfillmentServiceMocks.lockFulfillmentInventoryItems).not.toHaveBeenCalled();
     expect(voucherServiceMocks.deductBalance).not.toHaveBeenCalled();
+  });
+
+  it("rejects free-claim idempotency replay when mailbox code is expired or invalid", async () => {
+    await enableFreeClaimMail();
+    // 先真实下单写入哈希，再模拟缓存重放，避免 mock 侧 requestHash 为空导致 409 掩盖验码分支。
+    fulfillmentServiceMocks.lockFulfillmentInventoryItems.mockResolvedValue({
+      mode: "card",
+      inventoryIds: ["card-1"],
+    });
+    orderServiceMocks.markPaidAndIssue.mockResolvedValue({
+      ok: true,
+      card: { id: "card-1", accountLabel: "FREE-ACC", deliverySecret: "SECRET-1", deliveryNote: "" },
+      cards: [{ id: "card-1", accountLabel: "FREE-ACC", deliverySecret: "SECRET-1", deliveryNote: "" }],
+    });
+    const seeded = createUnifiedPayApp({ product: { priceCents: 0 } });
+    const firstRes = await seeded.app.request("https://shop.example.com/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ emailAccessCode: "123456" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
+    expect(firstRes.status).toBe(200);
+    const cachedHash = seeded.idempotencyState.requestHash;
+    expect(cachedHash).toMatch(/^[0-9a-f]{64}$/);
+
+    emailAccessMocks.verifyEmailAccessCode.mockResolvedValueOnce(false);
+    const { app } = createUnifiedPayApp({
+      product: { priceCents: 0 },
+      idempotencyResponseJson: JSON.stringify({
+        ok: true,
+        mode: "free",
+        status: "issued",
+        cards: [{ deliverySecret: "stolen-free" }],
+      }),
+      idempotencyRequestHash: cachedHash,
+      insertedIdempotency: false,
+    });
+
+    const res = await app.request("https://shop.example.com/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ emailAccessCode: "123456" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
+    const body = await res.json() as { ok: boolean; details?: { code?: string } };
+
+    expect(res.status).toBe(403);
+    expect(body.ok).toBe(false);
+    expect(body.details?.code).toBe("EMAIL_VERIFICATION_REQUIRED");
+    expect(emailAccessMocks.verifyEmailAccessCode).toHaveBeenCalled();
+  });
+
+  it("binds free-claim idempotency hash to emailAccessCode so different codes cannot share cache", async () => {
+    await enableFreeClaimMail();
+    fulfillmentServiceMocks.lockFulfillmentInventoryItems.mockResolvedValue({
+      mode: "card",
+      inventoryIds: ["card-1"],
+    });
+    orderServiceMocks.markPaidAndIssue.mockResolvedValue({
+      ok: true,
+      card: { id: "card-1", accountLabel: "FREE-ACC", deliverySecret: "SECRET-1", deliveryNote: "" },
+      cards: [{ id: "card-1", accountLabel: "FREE-ACC", deliverySecret: "SECRET-1", deliveryNote: "" }],
+    });
+    const first = createUnifiedPayApp({ product: { priceCents: 0 } });
+    const second = createUnifiedPayApp({ product: { priceCents: 0 } });
+
+    await first.app.request("https://shop.example.com/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ emailAccessCode: "111111" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
+    await second.app.request("https://shop.example.com/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ emailAccessCode: "222222" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
+
+    expect(first.idempotencyState.requestHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(second.idempotencyState.requestHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(first.idempotencyState.requestHash).not.toBe(second.idempotencyState.requestHash);
   });
 
   it("rejects invalid coupon before unified payment locks inventory", async () => {

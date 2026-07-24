@@ -16,6 +16,10 @@ import { type RuntimeConfig, mergeRuntimeConfig, readRuntimeConfig } from "../li
 import type { DeliveryVisibility } from "../../shared/product-contract";
 import { minorToMajorString } from "../../shared/money";
 import { serializeFulfillmentInputSnapshot, validateFulfillmentInput } from "../../shared/fulfillment-input";
+import { canonicalBuyerEmail } from "../../shared/canonical-email";
+import { effectivePurchaseLimitForProduct, isBasePriceFree } from "../../shared/checkout-policy";
+import { eqCanonicalBuyerEmail } from "../lib/canonical-email-sql";
+import { getEmailAccessSecret, verifyEmailAccessCode } from "../lib/email-access";
 
 const DEFAULT_DELIVERY_VISIBILITY: DeliveryVisibility = "web_and_email";
 
@@ -132,6 +136,11 @@ export type CreateOrderInput = {
   couponCode?: string;
   campaignCode?: string;
   referralCode?: string;
+  /**
+   * 基础价为 0 的免费商品必须携带 6 位邮箱验证码（与 /pay/unified 一致）。
+   * 付费商品用优惠码抵扣至 0 不要求此字段。
+   */
+  emailAccessCode?: string;
 };
 
 export type OrderSummaryRow = {
@@ -205,11 +214,12 @@ class ProductPurchaseLimitError extends Error {
 async function assertProductPurchaseLimit(
   db: DbType,
   buyerEmail: string,
-  product: { id: string; purchaseLimit?: number | null },
+  product: { id: string; priceCents?: number; purchaseLimit?: number | null },
   quantity: number,
 ): Promise<void> {
-  if (typeof product.purchaseLimit !== "number" || product.purchaseLimit <= 0) return;
-  const result = await checkProductPurchaseLimitForQuantity(db, buyerEmail, product.id, product.purchaseLimit, quantity);
+  const effectiveLimit = effectivePurchaseLimitForProduct(product.priceCents ?? 0, product.purchaseLimit);
+  if (!effectiveLimit) return;
+  const result = await checkProductPurchaseLimitForQuantity(db, buyerEmail, product.id, effectiveLimit, quantity);
   if (!result.ok) throw new ProductPurchaseLimitError(result.status, result.message);
 }
 
@@ -456,20 +466,29 @@ type RateLimitResult =
   | { ok: false; status: number; message: string };
 
 /**
- * 单邮箱限购：同一邮箱对同一商品，在配置时间窗口内最多 N 笔 pending/paid 订单。
- * 只对提供 buyerEmail 的订单生效，防止恶意批量下单和余额盗刷。
+ * 单邮箱限购：同一 canonical 邮箱对同一商品，在配置时间窗口内最多 N 笔订单。
+ * 付费默认只计 pending/paid；免费领取必须计入 issued（免费单几乎立刻 issued，否则频控失效）。
  */
-export async function checkOrderRateLimit(db: DbType, buyerEmail: string, productId: string): Promise<RateLimitResult> {
+export async function checkOrderRateLimit(
+  db: DbType,
+  buyerEmail: string,
+  productId: string,
+  options?: { includeIssued?: boolean },
+): Promise<RateLimitResult> {
   const { windowSeconds, maxOrders } = await getOrderRateLimitConfig(db);
   const windowStart = new Date(Date.now() - windowSeconds * 1000).toISOString();
+  const canonicalEmail = canonicalBuyerEmail(buyerEmail);
+  const statusFilter = options?.includeIssued
+    ? or(eq(orders.status, "pending"), eq(orders.status, "paid"), eq(orders.status, "issued"))
+    : or(eq(orders.status, "pending"), eq(orders.status, "paid"));
   const result = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(orders)
     .where(and(
-      eq(sql`lower(${orders.buyerEmail})`, buyerEmail.trim().toLowerCase()),
+      eqCanonicalBuyerEmail(orders.buyerEmail, canonicalEmail),
       eq(orders.productId, productId),
-      or(eq(orders.status, 'pending'), eq(orders.status, 'paid')),
-      sql`${orders.createdAt} >= ${windowStart}`
+      statusFilter,
+      sql`${orders.createdAt} >= ${windowStart}`,
     ));
   const count = Number(result[0]?.count || 0);
   if (count >= maxOrders) {
@@ -479,20 +498,50 @@ export async function checkOrderRateLimit(db: DbType, buyerEmail: string, produc
 }
 
 /**
- * 余额支付全局限购：同一邮箱在配置时间窗口内最多 N 笔余额支付的 pending/paid 订单。
+ * 免费领取邮箱频控：同 canonical 邮箱 + 商品，窗口内含 issued，阈值更严（默认最多 2 次/窗）。
+ */
+export async function checkFreeClaimOrderRateLimit(
+  db: DbType,
+  buyerEmail: string,
+  productId: string,
+): Promise<RateLimitResult> {
+  const { windowSeconds, maxOrders } = await getOrderRateLimitConfig(db);
+  const freeMaxOrders = Math.max(1, Math.min(maxOrders, 2));
+  const windowStart = new Date(Date.now() - windowSeconds * 1000).toISOString();
+  const canonicalEmail = canonicalBuyerEmail(buyerEmail);
+  const result = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(orders)
+    .where(and(
+      eqCanonicalBuyerEmail(orders.buyerEmail, canonicalEmail),
+      eq(orders.productId, productId),
+      or(eq(orders.status, "pending"), eq(orders.status, "paid"), eq(orders.status, "issued")),
+      or(eq(orders.paymentProvider, "free"), eq(orders.amountCents, 0)),
+      sql`${orders.createdAt} >= ${windowStart}`,
+    ));
+  const count = Number(result[0]?.count || 0);
+  if (count >= freeMaxOrders) {
+    return { ok: false, status: 429, message: `该邮箱免费领取过于频繁，请 ${windowSeconds / 60} 分钟后再试` };
+  }
+  return { ok: true };
+}
+
+/**
+ * 余额支付全局限购：同一 canonical 邮箱在配置时间窗口内最多 N 笔余额支付的 pending/paid 订单。
  * 防止余额盗刷：攻击者即使拿到用户密码，也无法在短时间内批量余额支付。
  */
 export async function checkBalanceOrderRateLimit(db: DbType, buyerEmail: string): Promise<RateLimitResult> {
   const { windowSeconds, maxOrders } = await getOrderRateLimitConfig(db);
   const windowStart = new Date(Date.now() - windowSeconds * 1000).toISOString();
+  const canonicalEmail = canonicalBuyerEmail(buyerEmail);
   const result = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(orders)
     .where(and(
-      eq(sql`lower(${orders.buyerEmail})`, buyerEmail.trim().toLowerCase()),
+      eqCanonicalBuyerEmail(orders.buyerEmail, canonicalEmail),
       eq(orders.paymentProvider, "balance"),
-      or(eq(orders.status, 'pending'), eq(orders.status, 'paid')),
-      sql`${orders.createdAt} >= ${windowStart}`
+      or(eq(orders.status, "pending"), eq(orders.status, "paid")),
+      sql`${orders.createdAt} >= ${windowStart}`,
     ));
   const count = Number(result[0]?.count || 0);
   if (count >= maxOrders) {
@@ -502,8 +551,8 @@ export async function checkBalanceOrderRateLimit(db: DbType, buyerEmail: string)
 }
 
 /**
- * 商品级限购：同一邮箱对同一商品的总 pending/paid/issued 件数不得超过商品限购数量。
- * 不限购商品（purchaseLimit 为空或 <= 0）不做限制。
+ * 商品级限购：同一 canonical 邮箱对同一商品的总 pending/paid/issued 件数不得超过限购数量。
+ * 调用方应传入已按商品语义兜底后的 purchaseLimit（免费空限购默认 1）。
  */
 export async function checkProductPurchaseLimit(db: DbType, buyerEmail: string, productId: string, purchaseLimit: number | null | undefined): Promise<RateLimitResult> {
   return checkProductPurchaseLimitForQuantity(db, buyerEmail, productId, purchaseLimit, 1);
@@ -516,18 +565,19 @@ export async function checkProductPurchaseLimitForQuantity(
   purchaseLimit: number | null | undefined,
   quantity: number,
 ): Promise<RateLimitResult> {
-  const effectiveLimit = typeof purchaseLimit === 'number' && purchaseLimit > 0 ? purchaseLimit : null;
+  const effectiveLimit = typeof purchaseLimit === "number" && purchaseLimit > 0 ? purchaseLimit : null;
   if (!effectiveLimit) {
     return { ok: true };
   }
   const requestedQuantity = Number.isInteger(quantity) && quantity > 0 ? quantity : 1;
+  const canonicalEmail = canonicalBuyerEmail(buyerEmail);
   const result = await db
     .select({ count: sql<number>`COALESCE(SUM(${orders.quantity}), 0)` })
     .from(orders)
     .where(and(
-      eq(sql`lower(${orders.buyerEmail})`, buyerEmail.trim().toLowerCase()),
+      eqCanonicalBuyerEmail(orders.buyerEmail, canonicalEmail),
       eq(orders.productId, productId),
-      or(eq(orders.status, 'pending'), eq(orders.status, 'paid'), eq(orders.status, 'issued'))
+      or(eq(orders.status, "pending"), eq(orders.status, "paid"), eq(orders.status, "issued")),
     ));
   const count = Number(result[0]?.count || 0);
   if (count + requestedQuantity > effectiveLimit) {
@@ -599,14 +649,64 @@ export async function createOrder(c: Context<AppEnv>, input: CreateOrderInput, i
 
   // ── 单邮箱限购：直发和待支付路径都必须遵守商品总限购 ──
   const normalizedBuyerEmail = (input.buyerEmail || "").trim().toLowerCase();
+  // 基础价免费：内部 createOrder 与生产 /pay/unified 对齐——强制邮箱归属 + 免费领取邮箱频控。
+  // 优惠码把付费商品抵扣到 0 不算「免费商品」，仍走折扣核销路径，不强制 OTP。
+  if (isBasePriceFree(product.priceCents)) {
+    if (!emailEnv.resendApiKey) {
+      return {
+        ok: false as const,
+        status: 503,
+        message: "免费领取需要邮件服务发送验证码，请联系管理员配置",
+      };
+    }
+    const emailAccessSecret = getEmailAccessSecret(c.env?.ADMIN_TOKEN, c.req.url);
+    if (!emailAccessSecret) {
+      return {
+        ok: false as const,
+        status: 503,
+        message: "邮箱验证服务未安全配置，请联系管理员",
+      };
+    }
+    const emailAccessCode = (input.emailAccessCode || "").trim();
+    if (!/^\d{6}$/.test(emailAccessCode)) {
+      return {
+        ok: false as const,
+        status: 403,
+        message: "免费领取请先完成邮箱验证码校验",
+      };
+    }
+    const mailboxVerified = await verifyEmailAccessCode(
+      normalizedBuyerEmail,
+      emailAccessCode,
+      emailAccessSecret,
+    );
+    if (!mailboxVerified) {
+      return {
+        ok: false as const,
+        status: 403,
+        message: "邮箱验证码无效或已过期",
+      };
+    }
+  }
   if (normalizedBuyerEmail && normalizedBuyerEmail.includes("@")) {
-    if (issueMode !== "direct") {
+    if (isBasePriceFree(product.priceCents)) {
+      const freeClaimLimit = await checkFreeClaimOrderRateLimit(db, normalizedBuyerEmail, product.id);
+      if (!freeClaimLimit.ok) {
+        return { ok: false as const, status: freeClaimLimit.status, message: freeClaimLimit.message };
+      }
+    } else if (issueMode !== "direct") {
       const rateLimit = await checkOrderRateLimit(db, normalizedBuyerEmail, product.id);
       if (!rateLimit.ok) {
         return { ok: false as const, status: rateLimit.status, message: rateLimit.message };
       }
     }
-    const purchaseLimit = await checkProductPurchaseLimitForQuantity(db, normalizedBuyerEmail, product.id, product.purchaseLimit, quantity);
+    const purchaseLimit = await checkProductPurchaseLimitForQuantity(
+      db,
+      normalizedBuyerEmail,
+      product.id,
+      effectivePurchaseLimitForProduct(product.priceCents, product.purchaseLimit),
+      quantity,
+    );
     if (!purchaseLimit.ok) {
       return { ok: false as const, status: purchaseLimit.status, message: purchaseLimit.message };
     }

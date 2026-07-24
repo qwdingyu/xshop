@@ -424,9 +424,95 @@
 .table-actions {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: nowrap;
   white-space: nowrap;
+}
+
+/* ── 表格内上架/启用类开关（紧凑，与 btn-xs 齐高） ── */
+.status-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  min-height: 28px;
+  padding: 0 2px 0 0;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  color: var(--tg-hint, #9aa4b2);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.status-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+
+.status-switch-track {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 32px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.status-switch-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #f8fafc;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  transition: transform 0.15s ease;
+}
+
+.status-switch.is-on {
+  color: var(--admin-success, #6ee7b7);
+}
+
+.status-switch.is-on .status-switch-track {
+  background: rgba(16, 185, 129, 0.42);
+  border-color: rgba(52, 211, 153, 0.45);
+}
+
+.status-switch.is-on .status-switch-thumb {
+  transform: translateX(14px);
+}
+
+.status-switch-text {
+  min-width: 2em;
+  font-weight: 500;
+}
+
+.status-switch.is-disabled,
+.status-switch:has(input:disabled) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.status-switch input:focus-visible + .status-switch-track {
+  outline: 2px solid var(--admin-accent, #f59e0b);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-switch-track,
+  .status-switch-thumb {
+    transition: none;
+  }
 }
 
 /* ── 模态框表单 ── */

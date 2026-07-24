@@ -36,6 +36,23 @@ describe('admin commerce settings contract', () => {
     expect(storefrontsSource).toContain('compact · 紧凑列表模板')
   })
 
+  it('defaults free-product purchase limit guidance to one claim per mailbox', () => {
+    expect(productsSource).toContain("isFreeProductPrice ? '免费商品默认 1，可改大'")
+    expect(productsSource).toContain('免费商品未填写时后端按每邮箱 1 次限购')
+    expect(productsSource).toContain("if (parseMajorToMinor(form.priceMajor, form.currency) === 0) return 1")
+  })
+
+  it('uses an on-row shelf switch instead of a sort jump in product ops', () => {
+    expect(productsSource).toContain('toggleProductActive')
+    expect(productsSource).toContain('status-switch')
+    expect(productsSource).toContain("updateAdminProduct(token.value, item.id, { active: nextActive })")
+    expect(productsSource).not.toContain('goStorefrontSort')
+    expect(productsSource).not.toContain('>排序</button>')
+    // 渠道排序仍保留在展示渠道列的行内编辑，不从操作列跳转
+    expect(productsSource).toContain('saveCurrentStorefrontSort')
+    expect(productsSource).toContain('当前渠道排序')
+  })
+
   it('copies user-facing buy links only for a visible channel mapping', () => {
     expect(productsSource).toContain('copyProductBuyLink')
     expect(productsSource).toContain('resolveAdminBuyLink')

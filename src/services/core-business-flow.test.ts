@@ -10,6 +10,7 @@ import { redeemVoucher, deductBalance, refundBalance, getUserBalance } from "./v
 import { importCards, getOrderDetail, cancelOrder } from "./admin-service";
 import { releaseIssuedCard } from "./issue-service";
 import { writeOrderEvent } from "./audit-service";
+import { createEmailAccessCode } from "../lib/email-access";
 
 // ── Mock external services ──
 const mockGetCoupon = vi.fn();
@@ -249,6 +250,19 @@ function createMockDb(state: MockDbState = {}): DbType {
   } as unknown as DbType;
 }
 
+async function freeOrderInput(
+  productId: string,
+  buyerEmail: string,
+  extra: Record<string, unknown> = {},
+): Promise<{ productId: string; buyerEmail: string; emailAccessCode: string } & Record<string, unknown>> {
+  return {
+    productId,
+    buyerEmail,
+    emailAccessCode: await createEmailAccessCode(buyerEmail, "test-token"),
+    ...extra,
+  };
+}
+
 function createMockContext(db: DbType, overrides: Record<string, unknown> = {}): Context<AppEnv> {
   const headers: Record<string, string> = { "user-agent": "test-agent", ...(overrides.headerOverrides as Record<string, string> || {}) };
   return {
@@ -259,6 +273,7 @@ function createMockContext(db: DbType, overrides: Record<string, unknown> = {}):
     },
     env: {
       ADMIN_TOKEN: "test-token",
+      RESEND_API_KEY: "resend-test-key",
       ...(overrides.env as Record<string, unknown> || {}),
     } as any,
     req: {
@@ -757,7 +772,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
       });
 
       const c = createMockContext(db);
-      const orderResult = await createOrder(c, { productId, buyerEmail }, "ip-hash-6");
+      const orderResult = await createOrder(c, await freeOrderInput(productId, buyerEmail), "ip-hash-6");
 
       expect(orderResult.ok).toBe(true);
       if (!orderResult.ok) return;

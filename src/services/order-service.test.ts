@@ -14,6 +14,7 @@ import type { IssueMode } from "../bindings";
 import type { Context } from "hono";
 import type { AppEnv } from "../bindings";
 import { orders as ordersTable } from "../db/schema";
+import { createEmailAccessCode } from "../lib/email-access";
 
 // ---------------------------------------------------------------------------
 // Mock Drizzle-dependent modules
@@ -146,14 +147,17 @@ function createResultDb(selectResults: unknown[] = [], runResults: Record<string
 
 function createMockContext(db: DbType, overrides: Record<string, unknown> = {}): Context<AppEnv> {
   const headers: Record<string, string> = { "user-agent": "test-agent", ...(overrides.headerOverrides as Record<string, string> || {}) };
+  const defaultExecutionCtx = { waitUntil: (p: Promise<unknown>) => { void p.catch(() => {}); } };
   return {
     get: (key: string) => {
       if (key === "db") return db;
-      if (key === "executionCtx") return overrides.executionCtx;
+      if (key === "executionCtx") return overrides.executionCtx ?? defaultExecutionCtx;
       return undefined as any;
     },
     env: {
       ADMIN_TOKEN: "test-token",
+      // 免费领取门禁依赖邮件服务配置；默认在 mock 上下文中开启，避免每个 free 用例重复传。
+      RESEND_API_KEY: "resend-test-key",
       ...(overrides.env as Record<string, unknown> || {}),
     } as any,
     req: {
@@ -162,6 +166,16 @@ function createMockContext(db: DbType, overrides: Record<string, unknown> = {}):
       method: "POST",
     },
   } as unknown as Context<AppEnv>;
+}
+
+/** 生成可过 verifyEmailAccessCode 的免费领取输入（ADMIN_TOKEN=test-token） */
+async function withFreeEmailCode(
+  input: CreateOrderInput,
+  adminToken = "test-token",
+): Promise<CreateOrderInput> {
+  const email = (input.buyerEmail || "").trim().toLowerCase();
+  const emailAccessCode = await createEmailAccessCode(email, adminToken);
+  return { ...input, emailAccessCode };
 }
 
 // ── Stateful DB mock for createOrder / markPaidAndIssue ──
@@ -1189,6 +1203,134 @@ describe("createOrder", () => {
     }
   });
 
+  it("applies default free-product purchase limit of 1 when purchaseLimit is null", async () => {
+    mockGetProduct.mockResolvedValue({
+      id: "prod-free-default-limit",
+      title: "Free Default Limit",
+      priceCents: 0,
+      currency: "CNY",
+      issueMode: "direct",
+      fulfillmentMode: "virtual",
+      salesCopy: "free copy",
+      purchaseLimit: null,
+    });
+    mockQuoteCoupon.mockResolvedValue({
+      couponCode: "",
+      valid: true,
+      discountCents: 0,
+      payableCents: 0,
+      message: "免单",
+    });
+    const db = createMockDb({});
+    // free_claim 邮箱频控先查 COUNT，再查限购 SUM；用递增计数区分两次读。
+    let orderReads = 0;
+    (db as any).select = (_colMap: unknown) => ({
+      from: (_table?: unknown) => createSelectChain([{ count: orderReads++ === 0 ? 0 : 1 }]),
+    });
+    const result = await createOrder(
+      createMockContext(db),
+      await withFreeEmailCode({
+        productId: "prod-free-default-limit",
+        buyerEmail: "free@example.com",
+      }),
+      "iphash-free",
+    );
+    expect(result).toEqual({
+      ok: false,
+      status: 429,
+      message: "该商品每人限购 1 件，您已达到上限",
+    });
+  });
+
+  it("rejects free base-price product without email access code", async () => {
+    mockGetProduct.mockResolvedValue({
+      id: "prod-free-otp",
+      title: "Free OTP",
+      priceCents: 0,
+      currency: "CNY",
+      issueMode: "direct",
+      fulfillmentMode: "virtual",
+      salesCopy: "secret",
+    });
+    mockQuoteCoupon.mockResolvedValue({
+      couponCode: "",
+      valid: true,
+      discountCents: 0,
+      payableCents: 0,
+      message: "免单",
+    });
+    const result = await createOrder(createMockContext(createMockDb({})), {
+      productId: "prod-free-otp",
+      buyerEmail: "otp@example.com",
+    }, "iphash-otp");
+    expect(result).toEqual({
+      ok: false,
+      status: 403,
+      message: "免费领取请先完成邮箱验证码校验",
+    });
+  });
+
+  it("rejects free base-price product with invalid email access code", async () => {
+    mockGetProduct.mockResolvedValue({
+      id: "prod-free-bad-otp",
+      title: "Free Bad OTP",
+      priceCents: 0,
+      currency: "CNY",
+      issueMode: "direct",
+      fulfillmentMode: "virtual",
+      salesCopy: "secret",
+    });
+    mockQuoteCoupon.mockResolvedValue({
+      couponCode: "",
+      valid: true,
+      discountCents: 0,
+      payableCents: 0,
+      message: "免单",
+    });
+    const result = await createOrder(createMockContext(createMockDb({})), {
+      productId: "prod-free-bad-otp",
+      buyerEmail: "bad-otp@example.com",
+      emailAccessCode: "000000",
+    }, "iphash-bad-otp");
+    expect(result).toEqual({
+      ok: false,
+      status: 403,
+      message: "邮箱验证码无效或已过期",
+    });
+  });
+
+  it("rejects free base-price product when mail service is not configured", async () => {
+    mockGetProduct.mockResolvedValue({
+      id: "prod-free-no-mail",
+      title: "Free No Mail",
+      priceCents: 0,
+      currency: "CNY",
+      issueMode: "direct",
+      fulfillmentMode: "virtual",
+      salesCopy: "secret",
+    });
+    mockQuoteCoupon.mockResolvedValue({
+      couponCode: "",
+      valid: true,
+      discountCents: 0,
+      payableCents: 0,
+      message: "免单",
+    });
+    const result = await createOrder(
+      createMockContext(createMockDb({}), { env: { RESEND_API_KEY: "" } }),
+      await withFreeEmailCode({
+        productId: "prod-free-no-mail",
+        buyerEmail: "nomail@example.com",
+      }),
+      "iphash-no-mail",
+    );
+    expect(result).toEqual({
+      ok: false,
+      status: 503,
+      message: "免费领取需要邮件服务发送验证码，请联系管理员配置",
+    });
+  });
+
   it("enforces purchase limit for direct issue mode", async () => {
     mockGetProduct.mockResolvedValue({
       id: "prod-direct",
@@ -1218,11 +1360,16 @@ describe("createOrder", () => {
         },
       },
     });
+    let orderReads = 0;
     (db as any).select = (_colMap: unknown) => ({
-      from: (_table?: unknown) => createSelectChain([{ count: 1 }]),
+      from: (_table?: unknown) => createSelectChain([{ count: orderReads++ === 0 ? 0 : 1 }]),
     });
     const c = createMockContext(db);
-    const input: CreateOrderInput = { productId: "prod-direct", buyerEmail: "direct@example.com", couponCode: "FREE" };
+    const input = await withFreeEmailCode({
+      productId: "prod-direct",
+      buyerEmail: "direct@example.com",
+      couponCode: "FREE",
+    });
     const result = await createOrder(c, input, "iphash123");
     expect(result).toEqual({ ok: false, status: 429, message: "该商品每人限购 1 件，您已达到上限" });
   });
@@ -1255,21 +1402,26 @@ describe("createOrder", () => {
         },
       },
     });
+    // free_claim 频控 + 预检限购 + 事务内限购 = 3 次 orders 读
     let purchaseLimitReads = 0;
     const originalSelect = (db as any).select.bind(db);
     (db as any).select = (columns: unknown) => ({
       from: (table: unknown) => table === ordersTable
-        ? createSelectChain([{ count: purchaseLimitReads++ === 0 ? 0 : 1 }])
+        ? createSelectChain([{ count: purchaseLimitReads++ < 2 ? 0 : 1 }])
         : originalSelect(columns).from(table),
     });
 
-    const result = await createOrder(createMockContext(db), {
-      productId: "prod-direct-race",
-      buyerEmail: "direct-race@example.com",
-    }, "iphash-direct-race");
+    const result = await createOrder(
+      createMockContext(db),
+      await withFreeEmailCode({
+        productId: "prod-direct-race",
+        buyerEmail: "direct-race@example.com",
+      }),
+      "iphash-direct-race",
+    );
 
     expect(result).toEqual({ ok: false, status: 429, message: "该商品每人限购 1 件，您已达到上限" });
-    expect(purchaseLimitReads).toBe(2);
+    expect(purchaseLimitReads).toBe(3);
     expect((db as any).__cards["card-direct-race"].status).toBe("available");
   });
 
@@ -1292,8 +1444,11 @@ describe("createOrder", () => {
       message: "无折扣码",
     });
     const db = createMockDb({});
+    (db as any).select = (_colMap: unknown) => ({
+      from: (_table?: unknown) => createSelectChain([{ count: 0 }]),
+    });
     const c = createMockContext(db);
-    const input: CreateOrderInput = { productId: "prod-virtual", buyerEmail: "virtual@example.com" };
+    const input = await withFreeEmailCode({ productId: "prod-virtual", buyerEmail: "virtual@example.com" });
     const result = await createOrder(c, input, "iphash123");
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -1351,13 +1506,17 @@ describe("createOrder", () => {
       payableCents: 0,
       message: "无折扣码",
     });
-    const result = await createOrder(createMockContext(createMockDb({}), {
+    const db = createMockDb({});
+    (db as any).select = (_colMap: unknown) => ({
+      from: (_table?: unknown) => createSelectChain([{ count: 0 }]),
+    });
+    const result = await createOrder(createMockContext(db, {
       env: { RESEND_API_KEY: "resend-key" },
       executionCtx: { waitUntil: vi.fn() },
-    }), {
+    }), await withFreeEmailCode({
       productId: "prod-virtual-email-only",
       buyerEmail: "virtual-email@example.com",
-    }, "iphash-email-only");
+    }), "iphash-email-only");
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -1395,13 +1554,16 @@ describe("createOrder", () => {
         },
       },
     });
+    (db as any).select = (_colMap: unknown) => ({
+      from: (_table?: unknown) => createSelectChain([{ count: 0 }]),
+    });
     const result = await createOrder(createMockContext(db, {
       env: { RESEND_API_KEY: "resend-key" },
       executionCtx: { waitUntil: vi.fn() },
-    }), {
+    }), await withFreeEmailCode({
       productId: "prod-card-email-only",
       buyerEmail: "card-email@example.com",
-    }, "iphash-card-email-only");
+    }), "iphash-card-email-only");
 
     expect(result.ok).toBe(true);
     if (result.ok) {

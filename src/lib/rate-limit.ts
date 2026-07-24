@@ -34,11 +34,21 @@ function firstRow(result: unknown): Record<string, unknown> | undefined {
   return (result as RunResult | undefined)?.rows?.[0];
 }
 
+export type EnforceRateLimitOptions = {
+  /**
+   * 固定窗口长度（秒）。默认 60（每分钟）。
+   * 免费领取等场景可设 3600，实现“每小时 N 次”而不是“每分钟 N 次”。
+   */
+  windowSeconds?: number;
+  /** 超限时的提示文案；默认通用“请稍后再试” */
+  message?: string;
+};
+
 /**
  * 检查并执行限流。
  *
  * 使用原子 upsert（INSERT ... ON CONFLICT DO UPDATE）实现：
- * 1. 计算当前 60 秒窗口的起始时间戳
+ * 1. 计算当前固定窗口的起始时间戳（默认 60s，可配置）
  * 2. 尝试插入 (action, ipHash, windowStart) → requestCount=1
  * 3. 如果已存在，原子递增 requestCount + 1
  * 4. returning 获取最新计数，判断是否超限
@@ -47,13 +57,22 @@ function firstRow(result: unknown): Record<string, unknown> | undefined {
  *
  * @param c - Hono 上下文
  * @param action - 操作标识（如 "create_order"、"pay_callback"），不同操作独立计数
- * @param limit - 每分钟最大请求数，默认 8
+ * @param limit - 每个窗口最大请求数，默认 8
+ * @param options - 窗口长度与超限文案
  * @returns 通过时返回 { ok: true, ipHash }，被限流时返回 { ok: false, status: 429, message }
  */
-export async function enforceRateLimit(c: Context<AppEnv>, action: string, limit = 8) {
+export async function enforceRateLimit(
+  c: Context<AppEnv>,
+  action: string,
+  limit = 8,
+  options?: EnforceRateLimitOptions,
+) {
   const ipHash = await getIpHash(c);
   const now = Math.floor(Date.now() / 1000);
-  const windowStart = Math.floor(now / 60) * 60;
+  const windowSeconds = Number.isFinite(options?.windowSeconds) && (options?.windowSeconds || 0) > 0
+    ? Math.trunc(options!.windowSeconds!)
+    : 60;
+  const windowStart = Math.floor(now / windowSeconds) * windowSeconds;
   const db = getDb(c);
 
   // 原子 upsert：INSERT or UPDATE + RETURNING，一次数据库操作完成计数
@@ -80,10 +99,15 @@ export async function enforceRateLimit(c: Context<AppEnv>, action: string, limit
 
   if (currentCount > limit) {
     await writeRequestLog(c, action, 429, ipHash);
-    return { ok: false, status: 429, message: "请求过于频繁，请稍后再试" };
+    return {
+      ok: false as const,
+      status: 429,
+      message: options?.message || "请求过于频繁，请稍后再试",
+      ipHash,
+    };
   }
 
-  return { ok: true, ipHash };
+  return { ok: true as const, ipHash };
 }
 
 export type CooldownReservation = {

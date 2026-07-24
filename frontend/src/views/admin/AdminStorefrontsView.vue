@@ -555,7 +555,8 @@ onMounted(async () => {
 
 .channel-actions {
   flex-wrap: wrap;
-  min-width: 260px;
+  gap: 4px;
+  min-width: 240px;
 }
 
 .logo-preview {

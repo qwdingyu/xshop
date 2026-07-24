@@ -213,6 +213,28 @@ describe("enforceRateLimit", () => {
     const result = await enforceRateLimit(c, "create_order", 0);
     expect(result.ok).toBe(false);
   });
+
+  it("supports custom windowSeconds and message for free_claim hourly limits", async () => {
+    setMockCount(4);
+    const c = createMockContext();
+    const result = await enforceRateLimit(c, "free_claim", 3, {
+      windowSeconds: 3600,
+      message: "免费领取过于频繁，请一小时后再试",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(429);
+    expect(result.message).toBe("免费领取过于频繁，请一小时后再试");
+  });
+
+  it("allows free_claim under hourly limit with custom window", async () => {
+    setMockCount(2);
+    const c = createMockContext();
+    const result = await enforceRateLimit(c, "free_claim", 3, {
+      windowSeconds: 3600,
+      message: "免费领取过于频繁，请一小时后再试",
+    });
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe("writeRequestLog", () => {

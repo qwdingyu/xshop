@@ -6,7 +6,7 @@ import { withDbTransaction, type DbType } from "../db/client";
 import { getProduct } from "../services/product-service";
 import type { DeliveryVisibility } from "../../shared/product-contract";
 import { normalizeOrderStatus } from "../../shared/order-status";
-import { checkAndExpireOrder, checkBalanceOrderRateLimit, checkOrderRateLimit, checkProductPurchaseLimitForQuantity, deliveryVisibilityPayload, markPaidAndIssue, redactItemDeliveries } from "../services/order-service";
+import { checkAndExpireOrder, checkBalanceOrderRateLimit, checkFreeClaimOrderRateLimit, checkOrderRateLimit, checkProductPurchaseLimitForQuantity, deliveryVisibilityPayload, markPaidAndIssue, redactItemDeliveries } from "../services/order-service";
 import { consumeCoupon, quoteCoupon, releaseCouponReservation } from "../services/coupon-service";
 import { writeOrderEvent } from "../services/audit-service";
 import { enforceRateLimit, writeRequestLog } from "../lib/rate-limit";
@@ -50,6 +50,7 @@ import {
   type PublicStorefront,
 } from "../services/storefront-service";
 import {
+  effectivePurchaseLimitForProduct,
   getFreeProductCheckoutViolation,
   isBasePriceFree,
   type FreeProductCheckoutViolation,
@@ -109,6 +110,10 @@ const FREE_PRODUCT_CHECKOUT_ERRORS: Record<FreeProductCheckoutViolation, { code:
     code: "FREE_PRODUCT_PAYMENT_METHOD_UNSUPPORTED",
     message: "免费商品无需选择在线支付或余额支付",
   },
+  email_verification: {
+    code: "EMAIL_VERIFICATION_REQUIRED",
+    message: "免费领取请先完成邮箱验证码校验",
+  },
 };
 
 class ProductPurchaseLimitError extends Error {
@@ -136,11 +141,12 @@ async function assertStorefrontProductSellable(
 async function assertProductPurchaseLimit(
   db: DbType,
   buyerEmail: string,
-  product: { id: string; purchaseLimit?: number | null },
+  product: { id: string; priceCents?: number; purchaseLimit?: number | null },
   quantity: number,
 ): Promise<void> {
-  if (typeof product.purchaseLimit !== "number" || product.purchaseLimit <= 0) return;
-  const result = await checkProductPurchaseLimitForQuantity(db, buyerEmail, product.id, product.purchaseLimit, quantity);
+  const effectiveLimit = effectivePurchaseLimitForProduct(product.priceCents ?? 0, product.purchaseLimit);
+  if (!effectiveLimit) return;
+  const result = await checkProductPurchaseLimitForQuantity(db, buyerEmail, product.id, effectiveLimit, quantity);
   if (!result.ok) throw new ProductPurchaseLimitError(result.status, result.message);
 }
 
@@ -758,7 +764,9 @@ payRoute.post("/pay/unified", async (c) => {
   }
 
   const db = getDb(c);
+  // 订单仍存用户填写的小写邮箱；限购/限流在 order-service 内再做 canonical。
   const normalizedBuyerEmail = body.data.buyerEmail.trim().toLowerCase();
+  const emailAccessCode = (body.data.emailAccessCode || "").trim();
   if (body.data.balancePayment) {
     const authLimit = await enforceRateLimit(c, "balance_payment_auth", 8);
     if (!authLimit.ok) return fail(c, authLimit.message || "请求过于频繁，请稍后再试", authLimit.status || 429);
@@ -770,13 +778,14 @@ payRoute.post("/pay/unified", async (c) => {
     if (!emailAccessSecret) {
       return fail(c, "邮箱验证服务未安全配置，请联系管理员", 503, { code: "EMAIL_ACCESS_UNAVAILABLE" });
     }
-    const mailboxVerified = await verifyEmailAccessCode(normalizedBuyerEmail, body.data.emailAccessCode, emailAccessSecret);
+    const mailboxVerified = await verifyEmailAccessCode(normalizedBuyerEmail, emailAccessCode, emailAccessSecret);
     if (!mailboxVerified) {
       await writeRequestLog(c, "balance_payment_auth", 403, authLimit.ipHash);
       return fail(c, "邮箱验证码无效或已过期", 403, { code: "EMAIL_VERIFICATION_REQUIRED" });
     }
   }
   // 余额支付必须先完成邮箱归属验证，再允许读取同一幂等键的缓存响应；缓存可能包含订单交付结果。
+  // 免费领取：验码在读商品后执行；幂等哈希绑定验证码，且 free/balance 缓存重放仍会再验码（码过期即拒绝）。
   const idempotencyKey = rawIdempotencyKey;
   // 即使是缓存命中也先经过基础限流，限制对幂等能力凭证的在线猜测。
   const limit = await enforceRateLimit(c, "pay_unified", 8);
@@ -788,6 +797,8 @@ payRoute.post("/pay/unified", async (c) => {
   const idempotencyRequestHash = await hashIdempotencyRequest({
     balancePayment: body.data.balancePayment,
     buyerEmail: normalizedBuyerEmail,
+    // 将验证码纳入幂等指纹：换码/空码不能复用同一键读取含交付内容的缓存。
+    emailAccessCode,
     campaignCode: normalizeCode(body.data.campaignCode),
     couponCode: normalizeCode(body.data.couponCode),
     paymentChannel: body.data.paymentChannel || "",
@@ -812,6 +823,23 @@ payRoute.post("/pay/unified", async (c) => {
     delete cached[IDEMPOTENCY_REPLAY_AFTER_FIELD];
     if (Number.isFinite(replayAfter) && replayAfter > Date.now()) {
       return fail(c, "支付订单正在处理中，请稍后重试", 409, { code: "IDEMPOTENCY_PENDING" });
+    }
+    // free/balance 成功响应可能含交付明文；重放时必须再次证明邮箱归属（验证码窗口过期则拒绝）。
+    const cachedMode = typeof cached.mode === "string" ? cached.mode : "";
+    const requiresMailboxOnReplay = body.data.balancePayment
+      || cachedMode === "free"
+      || cachedMode === "balance"
+      || Boolean(emailAccessCode);
+    if (requiresMailboxOnReplay) {
+      const emailAccessSecret = getEmailAccessSecret(c.env.ADMIN_TOKEN, c.req.url);
+      if (!emailAccessSecret) {
+        return fail(c, "邮箱验证服务未安全配置，请联系管理员", 503, { code: "EMAIL_ACCESS_UNAVAILABLE" });
+      }
+      const mailboxVerified = await verifyEmailAccessCode(normalizedBuyerEmail, emailAccessCode, emailAccessSecret);
+      if (!mailboxVerified) {
+        await writeRequestLog(c, "pay_unified_idempotency_replay", 403, limit.ipHash);
+        return fail(c, "邮箱验证码无效或已过期", 403, { code: "EMAIL_VERIFICATION_REQUIRED" });
+      }
     }
     return c.json(cached, 200);
   }
@@ -859,6 +887,7 @@ payRoute.post("/pay/unified", async (c) => {
   const fulfillmentInputJson = serializeFulfillmentInputSnapshot(fulfillmentInput.snapshot);
   // 幂等租约必须先于商品读取建立，保证同键重放仍遵守既有恢复协议；
   // 因此免费商品参数校验失败时必须显式释放租约，允许用户修正请求后复用业务流程。
+  const basePriceIsFree = isBasePriceFree(product.priceCents);
   const freeCheckoutViolation = getFreeProductCheckoutViolation(product.priceCents, {
     quantity: body.data.quantity,
     couponCode: body.data.couponCode,
@@ -869,7 +898,36 @@ payRoute.post("/pay/unified", async (c) => {
   if (freeCheckoutViolation) {
     const error = FREE_PRODUCT_CHECKOUT_ERRORS[freeCheckoutViolation];
     await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
-    return fail(c, error.message, 400, { code: error.code });
+    // 缺验证码与余额支付一致，使用 403 + EMAIL_VERIFICATION_REQUIRED，便于前端复用提示。
+    const status = freeCheckoutViolation === "email_verification" ? 403 : 400;
+    return fail(c, error.message, status, { code: error.code });
+  }
+  if (basePriceIsFree) {
+    // 免费领取强制邮箱归属：邮件服务与 access secret 任一不可用则拒绝，禁止生产放行。
+    if (!runtimeConfig.resendApiKey) {
+      await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
+      return fail(c, "免费领取需要邮件服务发送验证码，请联系管理员配置", 503, { code: "EMAIL_REQUIRED_FOR_FREE_CLAIM" });
+    }
+    // 与方案文档一致：免费领取 IP 按「每小时」计数，默认最多 3 次，与付费 pay_unified（每分钟）解耦。
+    const freeAuthLimit = await enforceRateLimit(c, "free_claim", 3, {
+      windowSeconds: 3600,
+      message: "免费领取过于频繁，请一小时后再试",
+    });
+    if (!freeAuthLimit.ok) {
+      await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
+      return fail(c, freeAuthLimit.message || "免费领取过于频繁，请稍后再试", freeAuthLimit.status || 429);
+    }
+    const emailAccessSecret = getEmailAccessSecret(c.env.ADMIN_TOKEN, c.req.url);
+    if (!emailAccessSecret) {
+      await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
+      return fail(c, "邮箱验证服务未安全配置，请联系管理员", 503, { code: "EMAIL_ACCESS_UNAVAILABLE" });
+    }
+    const mailboxVerified = await verifyEmailAccessCode(normalizedBuyerEmail, emailAccessCode, emailAccessSecret);
+    if (!mailboxVerified) {
+      await writeRequestLog(c, "free_claim", 403, freeAuthLimit.ipHash);
+      await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
+      return fail(c, "邮箱验证码无效或已过期", 403, { code: "EMAIL_VERIFICATION_REQUIRED" });
+    }
   }
   let productCurrency: ReturnType<typeof normalizeCurrencyCode>;
   try {
@@ -901,13 +959,29 @@ payRoute.post("/pay/unified", async (c) => {
     return fail(c, "当前商品库存不足", 409);
   }
 
-  const orderLimit = await checkOrderRateLimit(db, normalizedBuyerEmail, product.id);
-  if (!orderLimit.ok) {
-    await writeRequestLog(c, "pay_unified", orderLimit.status, limit.ipHash);
-    await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
-    return fail(c, orderLimit.message, orderLimit.status);
+  if (basePriceIsFree) {
+    const freeClaimLimit = await checkFreeClaimOrderRateLimit(db, normalizedBuyerEmail, product.id);
+    if (!freeClaimLimit.ok) {
+      await writeRequestLog(c, "pay_unified", freeClaimLimit.status, limit.ipHash);
+      await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
+      return fail(c, freeClaimLimit.message, freeClaimLimit.status);
+    }
+  } else {
+    const orderLimit = await checkOrderRateLimit(db, normalizedBuyerEmail, product.id);
+    if (!orderLimit.ok) {
+      await writeRequestLog(c, "pay_unified", orderLimit.status, limit.ipHash);
+      await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
+      return fail(c, orderLimit.message, orderLimit.status);
+    }
   }
-  const purchaseLimit = await checkProductPurchaseLimitForQuantity(db, normalizedBuyerEmail, product.id, product.purchaseLimit, quantity);
+  const effectivePurchaseLimit = effectivePurchaseLimitForProduct(product.priceCents, product.purchaseLimit);
+  const purchaseLimit = await checkProductPurchaseLimitForQuantity(
+    db,
+    normalizedBuyerEmail,
+    product.id,
+    effectivePurchaseLimit,
+    quantity,
+  );
   if (!purchaseLimit.ok) {
     await writeRequestLog(c, "pay_unified", purchaseLimit.status, limit.ipHash);
     await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
@@ -927,7 +1001,6 @@ payRoute.post("/pay/unified", async (c) => {
   // 前者固定免费领取，后者仍需报价并在事务内核销优惠码。
   const couponCode = normalizeCode(body.data.couponCode);
   const baseAmountCents = product.priceCents * quantity;
-  const basePriceIsFree = isBasePriceFree(product.priceCents);
   const quote = basePriceIsFree
     ? {
         couponCode: "",

@@ -134,6 +134,35 @@
                   />
                 </div>
 
+                <!-- 免费领取：强制邮箱验证码（与查单/余额同一套发码链路） -->
+                <div v-if="isBasePriceFreeProduct" class="field-block free-claim-auth">
+                  <div class="email-code-row">
+                    <input
+                      v-model="emailAccessCode"
+                      type="text"
+                      inputmode="numeric"
+                      autocomplete="one-time-code"
+                      maxlength="6"
+                      pattern="[0-9]{6}"
+                      placeholder="邮箱验证码（必填）"
+                    />
+                    <button
+                      class="btn btn-secondary btn-sm"
+                      type="button"
+                      :disabled="sendingEmailCode || emailCodeCoolingDown || !email.trim()"
+                      @click="sendEmailCode"
+                    >
+                      {{ sendingEmailCode ? '发送中' : emailCodeButtonText }}
+                    </button>
+                  </div>
+                  <div v-if="emailCodeMsg" class="email-code-msg" :class="emailCodeSent ? 'valid' : 'invalid'">
+                    {{ emailCodeMsg }}
+                  </div>
+                  <p class="balance-auth-hint">
+                    免费领取需验证邮箱归属，验证码将发送到上方邮箱
+                  </p>
+                </div>
+
                 <div v-if="fulfillmentInputVisible" class="field-block">
                   <label class="field-label" :for="`fulfillment-input-${product.id}`">{{ fulfillmentInputLabel }}</label>
                   <input
@@ -934,8 +963,8 @@ async function handleSubmit() {
       formError.value = '余额不足，请先兑换充值码或选择其它支付方式'
       return
     }
-    if (useBalance && !/^\d{6}$/.test(intent.emailAccessCode)) {
-      // 余额支付必须先证明邮箱归属；验证码只发给邮箱本人，避免知道邮箱即可花掉余额。
+    if ((useBalance || isBasePriceFreeProduct.value) && !/^\d{6}$/.test(intent.emailAccessCode)) {
+      // 余额支付 / 免费领取必须先证明邮箱归属；验证码只发给邮箱本人。
       formError.value = '请输入邮件中的 6 位验证码'
       return
     }
@@ -966,7 +995,7 @@ async function handleSubmit() {
       fulfillmentInput: submittedFulfillmentInput || undefined,
       turnstileToken: useBalance ? undefined : token || undefined,
       balancePayment: isBasePriceFreeProduct.value ? undefined : useBalance,
-      paymentChannel: intent.paymentChannel || undefined,
+      paymentChannel: isBasePriceFreeProduct.value ? undefined : (intent.paymentChannel || undefined),
       emailAccessCode: intent.emailAccessCode || undefined,
       idempotencyKey: idempotencyKey.value,
     })

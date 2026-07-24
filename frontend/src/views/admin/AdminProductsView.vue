@@ -171,6 +171,27 @@
             </td>
             <td>
               <div class="table-actions">
+                <label
+                  class="status-switch"
+                  :class="{
+                    'is-on': item.active,
+                    'is-disabled': saving || loading || batchOperating || togglingActiveId === item.id || deletingId === item.id || ((item.currency || 'CNY') !== 'CNY' && !item.active),
+                  }"
+                  :title="((item.currency || 'CNY') !== 'CNY' && !item.active) ? '非 CNY 商品只能保持下架' : (item.active ? '点击下架' : '点击上架')"
+                >
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    :checked="item.active"
+                    :disabled="saving || loading || batchOperating || togglingActiveId === item.id || deletingId === item.id || ((item.currency || 'CNY') !== 'CNY' && !item.active)"
+                    :aria-label="item.active ? `下架商品 ${item.title}` : `上架商品 ${item.title}`"
+                    @click.prevent="toggleProductActive(item)"
+                  />
+                  <span class="status-switch-track" aria-hidden="true">
+                    <span class="status-switch-thumb" />
+                  </span>
+                  <span class="status-switch-text">{{ togglingActiveId === item.id ? '…' : (item.active ? '上架' : '下架') }}</span>
+                </label>
                 <button class="btn btn-ghost btn-xs" title="复制为新商品" :disabled="saving || loading || batchOperating || duplicatingId === item.id" @click="duplicateProductRow(item)">
                   {{ duplicatingId === item.id ? '复制中…' : '复制' }}
                 </button>
@@ -183,9 +204,6 @@
                   购买链接
                 </button>
                 <button class="btn btn-ghost btn-xs" :disabled="saving || loading || batchOperating || deletingId === item.id" @click="openDialog(item)">编辑</button>
-                <button class="btn btn-ghost btn-xs" :title="filter.storefrontId ? '管理当前渠道排序' : '选择渠道后管理排序'" :disabled="loading || batchOperating" @click="goStorefrontSort(item)">
-                  排序
-                </button>
                 <button class="btn btn-danger btn-xs" :disabled="saving || loading || batchOperating || deletingId === item.id" @click="remove(item.id)">
                   {{ deletingId === item.id ? '删除中…' : '删除' }}
                 </button>
@@ -411,7 +429,15 @@
               </label>
               <label>
                 <span>限购数量（每邮箱）</span>
-                <input v-model.trim="form.purchaseLimit" type="number" min="0" placeholder="留空或 0 表示不限购" />
+                <input
+                  v-model.trim="form.purchaseLimit"
+                  type="number"
+                  min="0"
+                  :placeholder="isFreeProductPrice ? '免费商品默认 1，可改大' : '留空或 0 表示不限购'"
+                />
+                <small v-if="isFreeProductPrice" class="field-help">
+                  免费商品未填写时后端按每邮箱 1 次限购；建议显式设为 1 或更大值
+                </small>
               </label>
             </div>
             <div class="toggle-row">
@@ -516,6 +542,7 @@ const saving = ref(false)
 const loadError = ref('')
 const deletingId = ref('')
 const duplicatingId = ref('')
+const togglingActiveId = ref('')
 const savingSortKey = ref('')
 const {
   operating: batchOperating,
@@ -793,10 +820,24 @@ async function saveCurrentStorefrontSort(item: AdminProduct, rawValue: string) {
   }
 }
 
-function goStorefrontSort(item: AdminProduct) {
-  const targetStorefrontId = filter.storefrontId || productStorefronts(item)[0]?.id || ''
-  const query = targetStorefrontId ? { storefrontId: targetStorefrontId, productId: item.id } : { productId: item.id }
-  void router.push({ path: '/admin/storefronts', query })
+async function toggleProductActive(item: AdminProduct) {
+  if (togglingActiveId.value || loading.value || batchOperating.value || saving.value || deletingId.value === item.id) return
+  const nextActive = !item.active
+  const currency = item.currency || 'CNY'
+  if (nextActive && currency !== 'CNY') {
+    showToast('当前支付链路仅支持 CNY，非 CNY 商品只能保持下架', 'error')
+    return
+  }
+  togglingActiveId.value = item.id
+  try {
+    await updateAdminProduct(token.value, item.id, { active: nextActive })
+    item.active = nextActive
+    showToast(nextActive ? '已上架' : '已下架', 'success')
+  } catch (err: any) {
+    showToast(err.message || (nextActive ? '上架失败' : '下架失败'), 'error')
+  } finally {
+    if (togglingActiveId.value === item.id) togglingActiveId.value = ''
+  }
 }
 
 async function ensureCategoryExists() {
@@ -890,8 +931,8 @@ function openDialog(item?: AdminProduct) {
       fulfillmentInputLabel: '',
       fulfillmentInputHint: '',
       fulfillmentInputRequired: false,
-      purchaseLimit: '',
-      purchaseLimitDisplay: false,
+      purchaseLimit: '1',
+      purchaseLimitDisplay: true,
       active: true,
       storefrontIds: storefronts.value.filter(item => item.isDefault).map(item => item.id),
     })
@@ -902,7 +943,15 @@ function openDialog(item?: AdminProduct) {
 
 function normalizedPurchaseLimit(): number | null {
   const raw = String(form.purchaseLimit || '').trim()
-  if (!raw) return null
+  if (!raw) {
+    // 运营侧：新建/保存免费商品未填限购时默认 1（与后端兜底一致）
+    try {
+      if (parseMajorToMinor(form.priceMajor, form.currency) === 0) return 1
+    } catch {
+      /* ignore parse error; save() will surface price errors */
+    }
+    return null
+  }
   const parsed = Number(raw)
   if (!Number.isFinite(parsed)) return null
   const value = Math.trunc(parsed)
