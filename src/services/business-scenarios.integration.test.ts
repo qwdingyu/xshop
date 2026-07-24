@@ -6,12 +6,22 @@ import type { AppEnv, FulfillmentMode, IssueMode } from "../bindings";
 import { createDb, type DbType } from "../db/client";
 import { products, cards, orders, orderItems, voucherCodes, userBalances, balanceTransactions, systemConfig, coupons } from "../db/schema";
 import { runMigrations } from "../db/migrations";
-import { createOrder, getOrderByToken, markPaidAndIssue, checkAndExpireOrder } from "./order-service";
+import { createEmailAccessCode } from "../lib/email-access";
+import { createOrder, getOrderByToken, markPaidAndIssue, checkAndExpireOrder, type CreateOrderInput } from "./order-service";
 import { cancelOrder, getAdminProducts, getAdminSummary, getLowStockProducts } from "./admin-service";
 import { getProduct, listProducts } from "./product-service";
 import { redeemVoucher } from "./voucher-service";
 import { createOfflineOrder, handleInternalSettlement } from "../routes/pay";
 import { cleanupExpiredOrders } from "./cleanup-service";
+
+/** 与 order-service 测试夹具一致：免费领取 createOrder 必须带可过验的 6 位码 */
+const SCENARIO_ADMIN_TOKEN = "test-admin-token";
+
+async function withFreeEmailCode(input: CreateOrderInput): Promise<CreateOrderInput> {
+  const email = (input.buyerEmail || "").trim().toLowerCase();
+  const emailAccessCode = await createEmailAccessCode(email, SCENARIO_ADMIN_TOKEN);
+  return { ...input, emailAccessCode };
+}
 
 vi.mock("./email-service", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./email-service")>();
@@ -39,7 +49,9 @@ function createContext(db: DbType): Context<AppEnv> {
       return undefined;
     },
     env: {
-      ADMIN_TOKEN: "test-admin-token",
+      ADMIN_TOKEN: SCENARIO_ADMIN_TOKEN,
+      // 免费 createOrder 门禁与 /pay/unified 对齐：需要邮件服务配置才能验码下单
+      RESEND_API_KEY: "resend-test-key",
     },
     req: {
       header: (name: string) => name.toLowerCase() === "user-agent" ? "business-scenario-test" : undefined,
@@ -877,18 +889,18 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
       purchaseLimit: null,
     });
 
-    const first = await createOrder(createContext(db), {
+    const first = await createOrder(createContext(db), await withFreeEmailCode({
       productId: "qq-free-code",
       buyerEmail: "first@qq.example",
       buyerContact: "QQ群公告用户A",
       campaignCode: "qq-group",
-    }, "ip-hash-a");
-    const second = await createOrder(createContext(db), {
+    }), "ip-hash-a");
+    const second = await createOrder(createContext(db), await withFreeEmailCode({
       productId: "qq-free-code",
       buyerEmail: "second@qq.example",
       buyerContact: "QQ群公告用户B",
       campaignCode: "qq-group",
-    }, "ip-hash-b");
+    }), "ip-hash-b");
 
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
@@ -985,10 +997,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     });
     await seedCard(db, { id: "issued-expiry-card", productId: "issued-expiry", secret: "NO-RECYCLE" });
 
-    const orderResult = await createOrder(createContext(db), {
+    const orderResult = await createOrder(createContext(db), await withFreeEmailCode({
       productId: "issued-expiry",
       buyerEmail: "issued@example.com",
-    }, "ip-hash");
+    }), "ip-hash");
     expect(orderResult.ok).toBe(true);
     if (!orderResult.ok) return;
 
