@@ -1,11 +1,17 @@
+import { canonicalBuyerEmail } from "../../shared/canonical-email";
 import { constantTimeEqual } from "./security";
 
 const EMAIL_ACCESS_WINDOW_MS = 5 * 60 * 1000;
-const EMAIL_ACCESS_CONTEXT = "cf-shop-email-access-v1";
+/**
+ * v2：HMAC 主体改为 canonicalBuyerEmail（+tag / Gmail 点号归一），
+ * 与限购、免费领取频控使用同一“同一人”判定，避免别名绕过。
+ */
+const EMAIL_ACCESS_CONTEXT = "cf-shop-email-access-v2";
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
+/** 发码/验码共用的邮箱主体：与限购、限流同一套 canonical 规则。 */
+export function emailAccessSubject(email: string): string {
+  return canonicalBuyerEmail(email);
 }
 
 function importHmacKey(secret: string): Promise<CryptoKey> {
@@ -22,7 +28,7 @@ async function codeForWindow(email: string, key: CryptoKey, window: number): Pro
   const signature = await crypto.subtle.sign(
     "HMAC",
     key,
-    new TextEncoder().encode(`${EMAIL_ACCESS_CONTEXT}:${normalizeEmail(email)}:${window}`),
+    new TextEncoder().encode(`${EMAIL_ACCESS_CONTEXT}:${emailAccessSubject(email)}:${window}`),
   );
   const bytes = new Uint8Array(signature);
   const value = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0) % 1_000_000;

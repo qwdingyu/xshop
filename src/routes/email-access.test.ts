@@ -92,6 +92,29 @@ describe("POST /email/access-code", () => {
     }));
   });
 
+  it("cooldowns on canonical mailbox while still delivering to the typed address", async () => {
+    const res = await createApp().request("https://shop.example.com/api/email/access-code", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "U.Ser+promo@gmail.com", turnstileToken: "token" }),
+    }, { ADMIN_TOKEN: "admin-secret" });
+
+    expect(res.status).toBe(200);
+    expect(rateLimitMocks.reserveCooldown).toHaveBeenCalledWith(
+      expect.anything(),
+      "email_access_code_recipient",
+      "user@gmail.com",
+      60,
+    );
+    expect(emailAccessMocks.createEmailAccessCode).toHaveBeenCalledWith(
+      "u.ser+promo@gmail.com",
+      "admin-secret",
+    );
+    expect(emailMocks.sendEmail).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({
+      to: "u.ser+promo@gmail.com",
+    }));
+  });
+
   it("does not send when the signing secret is unsafe", async () => {
     const res = await createApp().request("https://shop.example.com/api/email/access-code", {
       method: "POST",

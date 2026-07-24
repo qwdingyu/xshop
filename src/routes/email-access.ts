@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../bindings";
-import { createEmailAccessCode, getEmailAccessSecret } from "../lib/email-access";
+import { createEmailAccessCode, emailAccessSubject, getEmailAccessSecret } from "../lib/email-access";
 import { fail, getDb, ok, safeJsonBody } from "../lib/http";
 import { enforceRateLimit, releaseCooldown, reserveCooldown, writeRequestLog } from "../lib/rate-limit";
 import { mergeRuntimeConfig, readRuntimeConfig } from "../lib/runtime-config";
@@ -43,11 +43,13 @@ emailAccessRoute.post("/email/access-code", async (c) => {
     return fail(c, "邮箱验证服务未安全配置，请联系管理员", 503, { code: "EMAIL_ACCESS_UNAVAILABLE" });
   }
 
-  const email = body.data.email.toLowerCase();
+  // 投递仍用用户填写的小写邮箱；冷却与 HMAC 主体用 canonical，防止 +tag / Gmail 点号刷码。
+  const deliveryEmail = body.data.email.trim().toLowerCase();
+  const subjectEmail = emailAccessSubject(deliveryEmail);
   const cooldown = await reserveCooldown(
     c,
     "email_access_code_recipient",
-    email,
+    subjectEmail,
     EMAIL_ACCESS_CODE_RESEND_COOLDOWN_SECONDS,
   );
   if (!cooldown.ok) {
@@ -58,9 +60,9 @@ emailAccessRoute.post("/email/access-code", async (c) => {
     });
   }
 
-  const code = await createEmailAccessCode(email, secret);
+  const code = await createEmailAccessCode(deliveryEmail, secret);
   const result = await sendEmail(db, runtimeConfig, {
-    to: email,
+    to: deliveryEmail,
     template: "email_access_code",
     templateData: { code, expiresInMinutes: "10" },
   });
