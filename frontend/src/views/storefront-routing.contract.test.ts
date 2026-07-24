@@ -114,6 +114,7 @@ describe('product confirm sheet contract', () => {
     expect(confirmSource).not.toMatch(/salesCopy ===/)
     expect(confirmSource).toContain('p.description')
     expect(confirmSource).toContain('salesCopy 为交付内容')
+    expect(confirmSource).toContain('展开全部')
   })
 
   it('locks body scroll and traps focus while open', () => {
@@ -121,5 +122,35 @@ describe('product confirm sheet contract', () => {
     expect(confirmSource).toContain("event.key === 'Escape'")
     expect(confirmSource).toContain("event.key !== 'Tab'")
     expect(confirmSource).toContain('buyBtnEl')
+  })
+})
+
+describe('pay modal checkout chrome contract', () => {
+  const paySource = readFileSync(new URL('../components/PayModal.vue', import.meta.url), 'utf8')
+
+  it('exposes semantic checkout steps without changing the payment state machine', () => {
+    expect(paySource).toContain("checkoutStepLabels = ['填写', '支付', '完成']")
+    expect(paySource).toContain("step === 'form'")
+    expect(paySource).toContain("step === 'online'")
+    expect(paySource).toContain("step === 'offline'")
+    expect(paySource).toContain("step === 'result'")
+    expect(paySource).toContain('class="order-fields"')
+    expect(paySource).toContain('填写信息后选择支付方式')
+  })
+
+  it('keeps title-then-subtitle hierarchy, aria-current, topbar close, scroll lock and Esc', () => {
+    expect(paySource).toContain('class="pay-topbar"')
+    expect(paySource).toContain(":aria-current=\"currentStepDot === index ? 'step' : undefined\"")
+    expect(paySource).toContain("document.body.style.overflow = 'hidden'")
+    expect(paySource).toContain("event.key !== 'Escape'")
+    // 各 step-header 均为 title 在前、subtitle 在后（禁止副标题压在主标题上）
+    const headers = [...paySource.matchAll(/<div class="step-header">([\s\S]*?)<\/div>/g)].map((m) => m[1])
+    expect(headers.length).toBeGreaterThanOrEqual(4)
+    for (const block of headers) {
+      const titleAt = block.indexOf('step-title')
+      const subtitleAt = block.indexOf('step-subtitle')
+      expect(titleAt).toBeGreaterThanOrEqual(0)
+      expect(subtitleAt).toBeGreaterThan(titleAt)
+    }
   })
 })

@@ -4,28 +4,39 @@
       <div v-if="isVisible" class="pay-overlay" @click.self="handleOverlayClick">
         <transition name="pay-slide">
           <div class="pay-box" :class="boxClass">
-            <!-- Close button (H5 only; Telegram uses BackButton) -->
-            <button v-if="!isTelegram" class="pay-close" type="button" @click="handleClose">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              </svg>
-            </button>
-
-            <!-- Step indicator -->
-            <div class="step-indicator">
-              <span
-                v-for="index in stepDots"
-                :key="index"
-                class="step-dot"
-                :class="{ active: currentStepDot === index, done: currentStepDot > index }"
-              />
+            <!-- 顶栏：步骤指示 + 关闭（H5）；Telegram 用 BackButton，不渲染关闭 -->
+            <div class="pay-topbar">
+              <!-- 语义化步骤：填写 → 支付 → 完成（状态机仍为 form/online|offline/result，不改业务） -->
+              <nav class="step-indicator" aria-label="下单进度">
+                <div
+                  v-for="(label, index) in checkoutStepLabels"
+                  :key="label"
+                  class="step-item"
+                  :class="{ active: currentStepDot === index, done: currentStepDot > index }"
+                  :aria-current="currentStepDot === index ? 'step' : undefined"
+                >
+                  <span class="step-dot" aria-hidden="true" />
+                  <span class="step-caption">{{ label }}</span>
+                </div>
+              </nav>
+              <button
+                v-if="!isTelegram"
+                class="pay-close"
+                type="button"
+                aria-label="关闭"
+                @click="requestClose"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </button>
             </div>
 
             <!-- ═══ Step 1: Order Form ═══ -->
             <div v-show="step === 'form'" class="pay-step-content">
               <div class="step-header">
-                <div class="step-label">下单</div>
                 <h2 class="step-title">确认订单</h2>
+                <p class="step-subtitle">填写信息后选择支付方式</p>
               </div>
 
               <!-- Product summary -->
@@ -42,88 +53,93 @@
                 </div>
               </div>
 
-              <!-- Coupon -->
-              <div v-if="!isBasePriceFreeProduct" class="coupon-row">
-                <input
-                  v-model="couponCode"
-                  type="text"
-                  placeholder="折扣码（选填）"
-                  autocomplete="off"
-                />
-                <button
-                  class="btn btn-secondary btn-sm"
-                  type="button"
-                  :disabled="verifyingCoupon || !couponCode.trim()"
-                  @click="verifyCoupon"
-                >
-                  {{ verifyingCoupon ? '验证中' : '验证' }}
-                </button>
-              </div>
-              <div v-if="!isBasePriceFreeProduct && couponMsg" class="coupon-msg" :class="couponValid ? 'valid' : 'invalid'">
-                {{ couponMsg }}
-              </div>
-
-              <!-- Quantity -->
-              <div v-if="!isBasePriceFreeProduct" class="form-field">
-                <div class="quantity-row">
-                  <span class="quantity-label">购买数量</span>
-                  <div class="quantity-control">
-                    <button
-                      class="quantity-btn"
-                      type="button"
-                      :disabled="submitting || quantity <= 1"
-                      @click="quantity = Math.max(1, quantity - 1)"
-                    >
-                      -
-                    </button>
+              <!-- 订单信息：折扣码 / 数量 / 邮箱 / 履约输入（统一组间距） -->
+              <div class="order-fields">
+                <!-- Coupon -->
+                <div v-if="!isBasePriceFreeProduct" class="field-block">
+                  <div class="coupon-row">
                     <input
-                      v-model.number="quantity"
-                      type="number"
-                      inputmode="numeric"
-                      min="1"
-                      :max="maxQuantity"
-                      @blur="normalizeQuantity"
+                      v-model="couponCode"
+                      type="text"
+                      placeholder="折扣码（选填）"
+                      autocomplete="off"
                     />
                     <button
-                      class="quantity-btn"
+                      class="btn btn-secondary btn-sm"
                       type="button"
-                      :disabled="submitting || quantity >= maxQuantity"
-                      @click="quantity = Math.min(maxQuantity, quantity + 1)"
+                      :disabled="verifyingCoupon || !couponCode.trim()"
+                      @click="verifyCoupon"
                     >
-                      +
+                      {{ verifyingCoupon ? '验证中' : '验证' }}
                     </button>
                   </div>
-                  <span v-if="quantityHint" class="quantity-hint">{{ quantityHint }}</span>
+                  <div v-if="couponMsg" class="coupon-msg" :class="couponValid ? 'valid' : 'invalid'">
+                    {{ couponMsg }}
+                  </div>
                 </div>
-              </div>
 
-              <!-- Email -->
-              <div class="form-field">
-                <input
-                  v-model="email"
-                  type="email"
-                  placeholder="邮箱（必填，用于接收卡密）"
-                />
-              </div>
+                <!-- Quantity -->
+                <div v-if="!isBasePriceFreeProduct" class="field-block">
+                  <div class="quantity-row">
+                    <span class="quantity-label">购买数量</span>
+                    <div class="quantity-control">
+                      <button
+                        class="quantity-btn"
+                        type="button"
+                        :disabled="submitting || quantity <= 1"
+                        @click="quantity = Math.max(1, quantity - 1)"
+                      >
+                        -
+                      </button>
+                      <input
+                        v-model.number="quantity"
+                        type="number"
+                        inputmode="numeric"
+                        min="1"
+                        :max="maxQuantity"
+                        @blur="normalizeQuantity"
+                      />
+                      <button
+                        class="quantity-btn"
+                        type="button"
+                        :disabled="submitting || quantity >= maxQuantity"
+                        @click="quantity = Math.min(maxQuantity, quantity + 1)"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <span v-if="quantityHint" class="quantity-hint">{{ quantityHint }}</span>
+                  </div>
+                </div>
 
-              <div v-if="fulfillmentInputVisible" class="form-field">
-                <label class="field-label" :for="`fulfillment-input-${product.id}`">{{ fulfillmentInputLabel }}</label>
-                <input
-                  :id="`fulfillment-input-${product.id}`"
-                  v-model="fulfillmentInput"
-                  :type="fulfillmentInputType === 'account' || fulfillmentInputType === 'uid' || fulfillmentInputType === 'text' ? 'text' : 'tel'"
-                  :inputmode="fulfillmentInputType === 'phone' || fulfillmentInputType === 'qq' ? 'numeric' : 'text'"
-                  :placeholder="fulfillmentInputHint || `请输入${fulfillmentInputLabel}`"
-                  :autocomplete="fulfillmentInputType === 'phone' ? 'tel' : 'off'"
-                  maxlength="200"
-                />
-                <small v-if="fulfillmentInputHint" class="field-help">{{ fulfillmentInputHint }}</small>
+                <!-- Email -->
+                <div class="field-block">
+                  <input
+                    v-model="email"
+                    type="email"
+                    placeholder="邮箱（必填，用于接收卡密）"
+                  />
+                </div>
+
+                <div v-if="fulfillmentInputVisible" class="field-block">
+                  <label class="field-label" :for="`fulfillment-input-${product.id}`">{{ fulfillmentInputLabel }}</label>
+                  <input
+                    :id="`fulfillment-input-${product.id}`"
+                    v-model="fulfillmentInput"
+                    :type="fulfillmentInputType === 'account' || fulfillmentInputType === 'uid' || fulfillmentInputType === 'text' ? 'text' : 'tel'"
+                    :inputmode="fulfillmentInputType === 'phone' || fulfillmentInputType === 'qq' ? 'numeric' : 'text'"
+                    :placeholder="fulfillmentInputHint || `请输入${fulfillmentInputLabel}`"
+                    :autocomplete="fulfillmentInputType === 'phone' ? 'tel' : 'off'"
+                    maxlength="200"
+                  />
+                  <small v-if="fulfillmentInputHint" class="field-help">{{ fulfillmentInputHint }}</small>
+                </div>
               </div>
 
               <div v-if="showOnlinePaymentSection" class="payment-method-section">
                 <div class="payment-method-heading">
-                  <span>在线支付</span>
-                  <small v-if="onlinePaymentOptions.length > 0">{{ onlinePaymentOptions.length }} 种方式可用</small>
+                  <span>支付方式</span>
+                  <small v-if="onlinePaymentOptions.length > 0">{{ onlinePaymentOptions.length }} 种可用</small>
                 </div>
                 <div v-if="paymentMethodsLoading" class="payment-method-loading">正在读取可用支付方式…</div>
                 <div v-else-if="onlinePaymentOptions.length > 0" class="payment-method-grid" :class="{ single: onlinePaymentOptions.length === 1 }" role="group" aria-label="在线支付方式">
@@ -232,8 +248,8 @@
             <!-- ═══ Step 2: Online Payment ═══ -->
             <div v-show="step === 'online'" class="pay-step-content">
               <div class="step-header">
-                <div class="step-label">{{ onlineStepLabel }}</div>
                 <h2 class="step-title">{{ onlineStepTitle }}</h2>
+                <p class="step-subtitle">{{ onlineStepLabel }}</p>
               </div>
 
               <div class="pay-amount">
@@ -298,11 +314,11 @@
             <!-- ═══ Step 3: Offline Payment ═══ -->
             <div v-show="step === 'offline'" class="pay-step-content">
               <div class="step-header">
-                <div class="step-label">线下付款</div>
                 <h2 class="step-title offline-title">
                   <span>扫码付款</span>
                   <span v-if="offlineTimer" class="pay-timer-inline">{{ offlineTimer }}</span>
                 </h2>
+                <p class="step-subtitle">线下付款</p>
               </div>
 
               <div class="pay-amount">
@@ -376,8 +392,8 @@
             <!-- ═══ Step 4: Result ═══ -->
             <div v-show="step === 'result'" class="pay-step-content">
               <div class="step-header">
-                <div class="step-label">支付结果</div>
                 <h2 class="step-title">支付结果</h2>
+                <p class="step-subtitle">订单结果</p>
               </div>
 
               <div class="result-content">
@@ -456,7 +472,8 @@ watch(() => product.value.coverUrl, () => {
 
 // ── Derived state ──
 
-const stepDots = [0, 1, 2]
+/** 用户可见的三步语义；与 form → online|offline → result 一一对应，不改状态机 */
+const checkoutStepLabels = ['填写', '支付', '完成'] as const
 const currentStepDot = computed(() => {
   if (step.value === 'result') return 2
   if (step.value === 'online' || step.value === 'offline') return 1
@@ -1118,23 +1135,64 @@ const resultIcon = computed(() => {
   return icons[resultStatus.value] || '⟳'
 })
 
-// ── Navigation ──
+// ── Navigation / chrome（滚动锁 + Esc；不改支付状态机）──
+
+let previousBodyOverflow = ''
+let bodyScrollLocked = false
+
+function lockBodyScroll() {
+  if (bodyScrollLocked || typeof document === 'undefined') return
+  previousBodyOverflow = document.body.style.overflow
+  document.body.style.overflow = 'hidden'
+  bodyScrollLocked = true
+}
+
+function unlockBodyScroll() {
+  if (!bodyScrollLocked || typeof document === 'undefined') return
+  document.body.style.overflow = previousBodyOverflow
+  previousBodyOverflow = ''
+  bodyScrollLocked = false
+}
+
+/**
+ * 支付中关闭需确认（与遮罩点击一致）；H5 关闭钮 / Esc 共用。
+ * 填写与结果步直接关闭。
+ */
+function requestClose() {
+  if (step.value === 'online' || step.value === 'offline') {
+    // Telegram 中 confirm 不可用，直接关闭
+    if (isTelegram.value) {
+      void handleClose()
+      return
+    }
+    const ok = confirm(step.value === 'offline'
+      ? '支付尚未完成，关闭将取消该订单并释放库存。确定关闭吗？'
+      : '支付尚未完成，关闭只会停止本页轮询；订单会保留到超时，以免扫码后回调丢单。确定关闭吗？')
+    if (ok) void handleClose()
+    return
+  }
+  void handleClose()
+}
 
 async function goBack() {
   await handleClose()
 }
 
 function handleOverlayClick() {
+  // 仅支付中点遮罩触发确认关闭；填写/结果不误关
   if (step.value === 'online' || step.value === 'offline') {
-    // Telegram 中 confirm 不可用，直接关闭
-    if (isTelegram.value) {
-      handleClose()
-    } else if (confirm(step.value === 'offline'
-      ? '支付尚未完成，关闭将取消该订单并释放库存。确定关闭吗？'
-      : '支付尚未完成，关闭只会停止本页轮询；订单会保留到超时，以免扫码后回调丢单。确定关闭吗？')) {
-      handleClose()
-    }
+    requestClose()
   }
+}
+
+function onPayKeydown(event: KeyboardEvent) {
+  if (!isVisible.value) return
+  if (event.key !== 'Escape') return
+  // Telegram 用 BackButton；H5 才 Esc 关闭
+  if (isTelegram.value) return
+  event.preventDefault()
+  event.stopPropagation()
+  requestClose()
 }
 
 async function handleClose() {
@@ -1165,9 +1223,9 @@ watch([isVisible, step], ([vis, s]) => {
   if (isTelegram.value && vis && s !== 'result') {
     showBackButton(() => {
       if (s === 'form') {
-        handleClose()
+        void handleClose()
       } else {
-        goBack()
+        void goBack()
       }
     })
   }
@@ -1200,15 +1258,27 @@ watch(isVisible, (vis) => {
   if (vis) {
     restorePendingAttemptSelection()
     loadPaymentCapabilities()
+    lockBodyScroll()
+    if (typeof window !== 'undefined') {
+      window.addEventListener('keydown', onPayKeydown, true)
+    }
   } else {
     selectedPaymentMode.value = 'online'
     selectedPaymentChannel.value = 'alipay'
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('keydown', onPayKeydown, true)
+    }
+    unlockBodyScroll()
   }
 })
 
 onUnmounted(() => {
   stopPolling()
   stopEmailCodeCooldown()
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', onPayKeydown, true)
+  }
+  unlockBodyScroll()
 })
 
 
@@ -1241,20 +1311,28 @@ onUnmounted(() => {
 
 .pay-box {
   background: var(--tg-bg);
-  padding: 20px 16px;
-  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  padding: 16px 16px 18px;
+  padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
   position: relative;
   box-shadow: var(--shadow-lg);
 }
 
+/* ── 顶栏：步骤 + 关闭（避免绝对定位与步骤条重叠） ── */
+.pay-topbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  min-height: 32px;
+}
+
 /* ── Close button ── */
 .pay-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
+  flex-shrink: 0;
   width: 32px;
   height: 32px;
+  margin-top: 0;
   border: none;
   border-radius: var(--r-full);
   background: var(--surface);
@@ -1271,29 +1349,63 @@ onUnmounted(() => {
   color: var(--tg-text);
 }
 
-/* ── Step indicator ── */
+/* ── Step indicator（填写 → 支付 → 完成） ── */
 .step-indicator {
   display: flex;
+  align-items: flex-start;
   justify-content: center;
-  gap: 8px;
-  margin-bottom: 20px;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  /* 无关闭钮时（Telegram）仍保持视觉居中 */
+  padding-inline: 4px;
+}
+
+.step-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  max-width: 88px;
 }
 
 .step-dot {
-  width: 20px;
+  width: 100%;
+  max-width: 36px;
   height: 3px;
   border-radius: 2px;
   background: var(--surface-hover);
-  transition: all var(--duration-normal) var(--ease-out);
+  transition: background var(--duration-normal) var(--ease-out),
+              max-width var(--duration-normal) var(--ease-out);
 }
 
-.step-dot.active {
+.step-item.active .step-dot {
   background: var(--tg-btn);
-  width: 28px;
+  max-width: 44px;
 }
 
-.step-dot.done {
-  background: #22c55e;
+.step-item.done .step-dot {
+  background: var(--admin-success, #22c55e);
+}
+
+.step-caption {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--tg-hint);
+  white-space: nowrap;
+}
+
+.step-item.active .step-caption {
+  color: var(--tg-text);
+  font-weight: 600;
+}
+
+.step-item.done .step-caption {
+  color: var(--tg-hint);
 }
 
 /* ── Step content ── */
@@ -1302,37 +1414,40 @@ onUnmounted(() => {
 }
 
 .step-header {
-  margin-bottom: 20px;
+  margin-bottom: 12px;
 }
 
-.step-label {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0;
-  color: var(--tg-hint);
-  margin-bottom: 2px;
-}
-
+/* 统一层级：主标题在上，副文案在下（各 step 一致） */
 .step-title {
-  font-size: 20px;
+  margin: 0;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: 0;
+  line-height: 1.25;
+}
+
+.step-subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--tg-hint);
 }
 
 /* ── Order summary ── */
 .order-summary {
   display: flex;
-  gap: 12px;
-  padding: 12px;
+  gap: 10px;
+  padding: 10px 12px;
   background: var(--surface);
   border-radius: var(--r-md);
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+  border: 0.5px solid var(--border);
 }
 
 .summary-cover {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   border-radius: var(--r-sm);
   overflow: hidden;
   flex-shrink: 0;
@@ -1358,12 +1473,13 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .summary-title {
   font-size: 14px;
   font-weight: 600;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -1372,20 +1488,34 @@ onUnmounted(() => {
 }
 
 .summary-price {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--tg-btn);
+  line-height: 1.25;
+}
+
+/* ── Order fields group（消除商品与表单之间的悬空白） ── */
+.order-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.field-block {
+  min-width: 0;
 }
 
 /* ── Quantity ── */
 .quantity-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-height: 40px;
 }
 
 .quantity-label {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--tg-hint);
   flex-shrink: 0;
 }
@@ -1453,14 +1583,6 @@ onUnmounted(() => {
 }
 
 /* ── Form fields ── */
-.form-field {
-  margin-bottom: 10px;
-}
-
-.form-field:last-child {
-  margin-bottom: 0;
-}
-
 .field-label,
 .field-help {
   display: block;
@@ -1478,11 +1600,11 @@ onUnmounted(() => {
 .coupon-row {
   display: flex;
   gap: 8px;
-  margin-bottom: 4px;
 }
 
 .coupon-row input {
   flex: 1;
+  min-width: 0;
 }
 
 .coupon-row .btn-sm {
@@ -1490,12 +1612,13 @@ onUnmounted(() => {
 }
 
 .coupon-msg {
-  font-size: 13px;
-  margin-bottom: 10px;
+  font-size: 12px;
+  margin-top: 6px;
+  line-height: 1.35;
 }
 
-.coupon-msg.valid { color: #22c55e; }
-.coupon-msg.invalid { color: #ef4444; }
+.coupon-msg.valid { color: var(--admin-success, #22c55e); }
+.coupon-msg.invalid { color: var(--admin-danger, #ef4444); }
 
 .email-code-row {
   display: flex;
@@ -1543,7 +1666,7 @@ onUnmounted(() => {
 .balance-msg.invalid { color: #ef4444; }
 
 .payment-method-section {
-  margin: 0 0 12px;
+  margin: 0 0 10px;
 }
 
 .payment-method-heading {
@@ -1553,7 +1676,7 @@ onUnmounted(() => {
   gap: 8px;
   margin-bottom: 8px;
   color: var(--tg-text);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -1727,22 +1850,24 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
+  margin-top: 4px;
 }
 
 .pay-action-row .btn-full {
   width: 100%;
+  margin-top: 0;
 }
 
 /* ── Form error ── */
 .form-error {
-  margin: 8px 0 0;
+  margin: 4px 0 0;
   font-size: 13px;
-  color: #ef4444;
+  color: var(--admin-danger, #ef4444);
 }
 
 .btn-full {
   width: 100%;
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 /* ── Payment amount ── */

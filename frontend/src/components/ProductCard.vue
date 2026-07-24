@@ -33,7 +33,8 @@
     <!-- Info -->
     <div class="product-info">
       <h3 class="product-title">{{ product.title }}</h3>
-      <div v-if="product.description" class="product-desc">{{ product.description }}</div>
+      <!-- 空描述不占位；过长由 line-clamp 截断，完整说明在支付前确认层 -->
+      <div v-if="cardDescription" class="product-desc">{{ cardDescription }}</div>
       <div class="product-tags">
         <span class="product-tag">{{ fulfillmentLabel }}</span>
         <span class="product-tag">{{ deliveryTimingLabel }}</span>
@@ -93,6 +94,12 @@ const displayPrice = computed(() => props.product.priceCents === 0
   ? '免费'
   : formatPrice(props.product.priceCents, props.product.currency))
 const originalPrice = computed(() => formatPrice(props.product.originalPriceCents ?? 0, props.product.currency))
+
+/** 卡片仅展示公开短描述；空白不占行高 */
+const cardDescription = computed(() => {
+  const raw = typeof props.product.description === 'string' ? props.product.description.trim() : ''
+  return raw || ''
+})
 
 const fulfillmentLabel = computed(() => {
   const mode = props.product.fulfillmentMode

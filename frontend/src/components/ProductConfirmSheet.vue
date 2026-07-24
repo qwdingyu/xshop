@@ -61,7 +61,17 @@
           </div>
 
           <!-- 仅公开 description；salesCopy 为交付内容，店面 API 会剥离，确认层绝不可展示 -->
-          <p v-if="bodyText" class="confirm-desc">{{ bodyText }}</p>
+          <div v-if="bodyText" class="confirm-desc-wrap">
+            <p class="confirm-desc" :class="{ expanded: descExpanded }">{{ bodyText }}</p>
+            <button
+              v-if="descNeedsToggle"
+              type="button"
+              class="confirm-desc-toggle"
+              @click="descExpanded = !descExpanded"
+            >
+              {{ descExpanded ? '收起' : '展开全部' }}
+            </button>
+          </div>
           <p v-else class="confirm-desc muted">确认商品信息后可购买，也可复制链接分享给朋友。</p>
 
           <div class="confirm-actions">
@@ -119,6 +129,9 @@ const imageFailed = ref(false)
 const sheetEl = ref<HTMLElement | null>(null)
 const closeBtnEl = ref<HTMLButtonElement | null>(null)
 const buyBtnEl = ref<HTMLButtonElement | null>(null)
+/** 长描述默认折叠行数；超过约 8 行提供展开（不新开路由） */
+const descExpanded = ref(false)
+const DESC_FOLD_CHARS = 220
 
 let previousActive: HTMLElement | null = null
 let previousBodyOverflow = ''
@@ -126,6 +139,10 @@ let scrollLocked = false
 
 watch(() => props.product?.coverUrl, () => {
   imageFailed.value = false
+})
+
+watch(() => props.product?.id, () => {
+  descExpanded.value = false
 })
 
 function lockBodyScroll() {
@@ -242,6 +259,13 @@ const bodyText = computed(() => {
   if (!p) return ''
   const desc = typeof p.description === 'string' ? p.description.trim() : ''
   return desc
+})
+
+const descNeedsToggle = computed(() => {
+  const text = bodyText.value
+  if (!text) return false
+  // 多段或超长：提供展开，避免确认层被长文占满首屏主按钮
+  return text.length > DESC_FOLD_CHARS || text.split('\n').length > 6
 })
 
 const tags = computed(() => {
@@ -468,21 +492,53 @@ function emitClose() {
   line-height: 1.3;
 }
 
+.confirm-desc-wrap {
+  margin: 0 0 14px;
+  min-width: 0;
+}
+
 .confirm-desc {
-  margin: 0 0 16px;
-  max-height: 9.5em;
+  margin: 0;
+  max-height: 10.5em;
   overflow: auto;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--tg-text);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
+.confirm-desc.expanded {
+  max-height: min(42vh, 280px);
+}
+
 .confirm-desc.muted {
+  margin: 0 0 14px;
   color: var(--tg-hint);
   max-height: none;
   overflow: visible;
+}
+
+.confirm-desc-toggle {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--tg-btn, var(--tg-button, #2aabee));
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.3;
+}
+
+.confirm-desc-toggle:hover {
+  text-decoration: underline;
+}
+
+.confirm-desc-toggle:focus-visible {
+  outline: 2px solid var(--tg-btn, var(--tg-button, #2aabee));
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .confirm-actions {

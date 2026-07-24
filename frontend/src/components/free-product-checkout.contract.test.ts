@@ -6,8 +6,11 @@ const productCardSource = readFileSync(new URL('./ProductCard.vue', import.meta.
 
 describe('free product checkout UI contract', () => {
   it('hides coupon, quantity, online payment, and balance payment for base-free products', () => {
+    // 折扣码 / 数量 各一处 v-if；文案提示嵌在折扣码块内
     expect(payModalSource.match(/v-if="!isBasePriceFreeProduct"/g)).toHaveLength(2)
-    expect(payModalSource).toContain('v-if="!isBasePriceFreeProduct && couponMsg"')
+    expect(payModalSource).toContain('v-if="couponMsg"')
+    expect(payModalSource).toContain('class="order-fields"')
+    expect(payModalSource).toContain('checkoutStepLabels')
     expect(payModalSource).toContain('const balancePayAvailable = computed(() => !isBasePriceFreeProduct.value')
     expect(payModalSource).toContain('const showOnlinePaymentSection = computed(() => !isBasePriceFreeProduct.value')
   })
