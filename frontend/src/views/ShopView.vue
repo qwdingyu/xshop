@@ -117,9 +117,18 @@
         :key="p.id"
         :product="p"
         :display-mode="storefrontTemplate"
-        @pay="handlePay"
+        @pay="handleOpenProduct"
       />
     </div>
+
+    <ProductConfirmSheet
+      :visible="Boolean(confirmProduct)"
+      :product="confirmProduct"
+      :copying="copyingBuyLink"
+      @close="closeProductConfirm"
+      @buy="buyFromConfirm"
+      @copy="copyBuyLinkFromConfirm"
+    />
   </div>
 </template>
 
@@ -127,17 +136,22 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ProductCard from '@/components/ProductCard.vue'
+import ProductConfirmSheet from '@/components/ProductConfirmSheet.vue'
 import { fetchProductCatalog, fetchProductDetail } from '@/api'
 import { usePayment } from '@/composables/usePayment'
 import { useShopConfig } from '@/composables/useShopConfig'
 import { useToast } from '@/composables/useToast'
+import { writeClipboardText } from '@/composables/useClipboard'
 import {
   buildOpenCheckoutFromFetchedProduct,
+  buildProductConfirmFromFetchedProduct,
+  buildUserStorefrontBuyUrl,
   openCheckoutFailureMessage,
 } from '@/lib/open-storefront-checkout'
 import {
   classifyDeeplinkFetchFailure,
   parseProductDeeplinkQuery,
+  productLinkKey,
   shouldScrubProductDeeplinkAfterAttempt,
   stripProductDeeplinkQuery,
   type DeeplinkScrubOutcome,
@@ -154,8 +168,12 @@ const catalogCategories = ref<ProductCategory[]>([])
 const loading = ref(true)
 /** 卡片/深链打开互斥：同一时刻只允许一个打开意图 */
 const openingProductId = ref('')
-/** 深链打开进行中（目录可能已出，弹窗尚未出现） */
+/** 深链打开进行中（目录可能已出，确认层尚未出现） */
 const deeplinkOpening = ref(false)
+/** 轻量商品确认层（支付前）；购买再进现有 PayModal */
+const confirmProduct = ref<Product | null>(null)
+const confirmHomePath = ref('')
+const copyingBuyLink = ref(false)
 const error = ref('')
 const searchQuery = ref('')
 const activeCategory = ref<string | null>(null)
@@ -230,6 +248,8 @@ async function loadData() {
   const requestedQuery = { ...route.query }
   loading.value = true
   error.value = ''
+  // 重载目录时关闭确认层，避免旧 SKU 与新渠道/目录错位
+  closeProductConfirm()
   clearStorefront()
   try {
     const catalog = await fetchProductCatalog(storefrontSlug ? { storefront: storefrontSlug } : undefined)
@@ -248,11 +268,11 @@ async function loadData() {
     catalogCategories.value = catalog.categories
     // 目录就绪后尝试消费 ?product= 深链（失败不跳转其他渠道）。
     void tryOpenProductDeeplink(catalog.storefront.id, catalog.storefront.slug)
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (requestSequence !== catalogRequestSequence || route.path !== requestedRoutePath) return
     products.value = []
     catalogCategories.value = []
-    error.value = err.message || '加载商品失败'
+    error.value = err instanceof Error ? err.message : '加载商品失败'
   } finally {
     if (requestSequence === catalogRequestSequence) loading.value = false
   }
@@ -270,11 +290,10 @@ async function scrubProductDeeplinkQuery() {
 }
 
 /**
- * 渠道内单商品深链：仅当当前渠道上下文已就绪时打开现有 PayModal。
+ * 渠道内单商品深链：渠道就绪后打开轻量确认层（不直开 PayModal）。
  * - 不跳转其他渠道
- * - 成功路径仅一次 fetchProductDetail，再走 buildOpenCheckoutFromFetchedProduct
- * - 仅在本意图到达售卖终态（打开 / 确认不可售 / builder 拒绝）后 scrub；
- *   忙锁、过期序号、瞬时网络/5xx 绝不清掉 product，避免推广链被误吞
+ * - 成功路径仅一次 fetchProductDetail → showProductConfirm
+ * - 确认层打开 / 确认不可售后 scrub；忙锁、过期、瞬时失败保留 product
  */
 async function tryOpenProductDeeplink(storefrontId: string, storefrontSlug: string) {
   const productKey = parseProductDeeplinkQuery(route.query as Record<string, unknown>)
@@ -293,7 +312,6 @@ async function tryOpenProductDeeplink(storefrontId: string, storefrontSlug: stri
       showToast('正在打开其他商品，请稍候再试', 'error')
       return
     }
-    // 占位互斥：详情返回前也挡住卡片连点；成功路径只 fetch 一次，不再进入 handlePay
     openingProductId.value = openLockKey
     ownedAttempt = true
 
@@ -303,23 +321,23 @@ async function tryOpenProductDeeplink(storefrontId: string, storefrontSlug: stri
       return
     }
     upsertProduct(latest)
-    const opened = openPayFromFetchedProduct(latest, storefrontId)
-    outcome = opened ? 'opened' : 'open_refused'
-  } catch (err: any) {
+    const shown = showProductConfirm(latest, storefrontId)
+    // 确认层打开即视为深链意图终态（可 scrub）；售罄仍可看确认层
+    outcome = shown ? 'opened' : 'open_refused'
+  } catch (err: unknown) {
     if (requestSequence !== deeplinkRequestSequence || storefront.value?.id !== storefrontId) {
       outcome = 'stale_or_left'
       return
     }
-    // 404/PRODUCT_NOT_IN_STOREFRONT → unsellable 可 scrub；503/429/网络 → transient 保留 query
     const failureKind = classifyDeeplinkFetchFailure(err)
     outcome = failureKind
+    const errMsg = err instanceof Error ? err.message : ''
     if (failureKind === 'unsellable') {
-      showToast(err?.message || '商品在当前渠道不可售或已下架', 'error')
+      showToast(errMsg || '商品在当前渠道不可售或已下架', 'error')
     } else {
-      showToast(err?.message || '打开商品失败，请稍后重试', 'error')
+      showToast(errMsg || '打开商品失败，请稍后重试', 'error')
     }
   } finally {
-    // 仅释放本意图占用的锁，避免过期请求清掉新意图的锁
     if (openingProductId.value === openLockKey) {
       openingProductId.value = ''
     }
@@ -371,23 +389,74 @@ async function refreshAfterPaymentClose() {
 }
 
 /**
- * 已拉取详情后的统一开单入口（深链与卡片共用决策层）。
- * 不发起网络请求；调用方保证 product 来自当前渠道详情接口。
+ * 已拉取详情后的统一确认层入口（深链与卡片共用）。
+ * 不发起网络请求；成功路径不直开 PayModal。
  */
-function openPayFromFetchedProduct(product: Product, expectedStorefrontId: string): boolean {
-  const result = buildOpenCheckoutFromFetchedProduct(storefront.value, product, {
+function showProductConfirm(product: Product, expectedStorefrontId: string): boolean {
+  const result = buildProductConfirmFromFetchedProduct(storefront.value, product, {
     expectedStorefrontId,
   })
   if (!result.ok) {
     showToast(openCheckoutFailureMessage(result.reason), 'error')
     return false
   }
-  open(result.payProduct)
+  confirmProduct.value = result.product
+  confirmHomePath.value = result.homePath
   return true
 }
 
-/** 卡片点击：拉一次详情 → 共用 openPayFromFetchedProduct */
-async function handlePay(product: Product) {
+function closeProductConfirm() {
+  confirmProduct.value = null
+  confirmHomePath.value = ''
+}
+
+/** 确认层 → 现有 PayModal（不二次拉详情；售罄由 builder 拒绝） */
+function buyFromConfirm() {
+  const product = confirmProduct.value
+  const activeStorefront = storefront.value
+  if (!product || !activeStorefront) {
+    showToast(openCheckoutFailureMessage('missing_storefront'), 'error')
+    return
+  }
+  const result = buildOpenCheckoutFromFetchedProduct(activeStorefront, product, {
+    expectedStorefrontId: activeStorefront.id,
+  })
+  if (!result.ok) {
+    showToast(openCheckoutFailureMessage(result.reason), 'error')
+    return
+  }
+  // 进入收银台后收起确认层，避免与 PayModal 双层叠态（Esc 误关底层等）
+  closeProductConfirm()
+  open(result.payProduct)
+}
+
+/** 确认层复制购买链：与 Admin 同契约 origin + homePath + ?product= */
+async function copyBuyLinkFromConfirm() {
+  const product = confirmProduct.value
+  const homePath = confirmHomePath.value || storefront.value?.homePath || ''
+  if (!product || !homePath) {
+    showToast('当前渠道未就绪，请刷新后重试', 'error')
+    return
+  }
+  if (copyingBuyLink.value) return
+  copyingBuyLink.value = true
+  try {
+    const url = buildUserStorefrontBuyUrl({
+      origin: window.location.origin,
+      homePath,
+      product: { id: product.id, slug: product.slug },
+    })
+    await writeClipboardText(url)
+    showToast('购买链接已复制', 'success')
+  } catch (err: unknown) {
+    showToast(err instanceof Error ? err.message : '复制购买链接失败', 'error')
+  } finally {
+    copyingBuyLink.value = false
+  }
+}
+
+/** 卡片点击：拉一次详情 → 确认层（不直开支付） */
+async function handleOpenProduct(product: Product) {
   const activeStorefront = storefront.value
   if (!activeStorefront) {
     showToast(openCheckoutFailureMessage('missing_storefront'), 'error')
@@ -397,19 +466,22 @@ async function handlePay(product: Product) {
     showToast('正在打开商品，请稍候', 'error')
     return
   }
-  openingProductId.value = product.id
+  // 与深链/Admin 一致：优先 slug，回退 id
+  const detailKey = productLinkKey(product) || product.id
+  const openLockKey = `card:${product.id}`
+  openingProductId.value = openLockKey
   try {
-    const latest = await fetchProductDetail(product.id, activeStorefront.slug)
+    const latest = await fetchProductDetail(detailKey, activeStorefront.slug)
     if (storefront.value?.id !== activeStorefront.id) {
       showToast(openCheckoutFailureMessage('channel_mismatch'), 'error')
       return
     }
     upsertProduct(latest)
-    openPayFromFetchedProduct(latest, activeStorefront.id)
-  } catch (err: any) {
-    showToast(err.message || '刷新库存失败，请稍后重试', 'error')
+    showProductConfirm(latest, activeStorefront.id)
+  } catch (err: unknown) {
+    showToast(err instanceof Error ? err.message : '打开商品失败，请稍后重试', 'error')
   } finally {
-    if (openingProductId.value === product.id) {
+    if (openingProductId.value === openLockKey) {
       openingProductId.value = ''
     }
   }
@@ -434,6 +506,7 @@ watch(requestedStorefrontSlug, () => {
   activeCategory.value = null
   products.value = []
   catalogCategories.value = []
+  closeProductConfirm()
   void loadData()
 }, { immediate: true })
 

@@ -67,10 +67,10 @@ export function productDeeplinkConsumeKey(storefrontId: string, productKey: stri
 /**
  * 深链意图终态后是否应 scrub `?product=`。
  *
- * 仅在「本意图已拥有打开锁，且到达可判定的售卖结论」时清除：
- * - opened：已打开收银台
+ * 仅在「本意图已拥有打开锁，且到达可判定的展示/售卖结论」时清除：
+ * - opened：已打开轻量确认层（支付前；非直开 PayModal）
  * - unsellable：当前渠道确认不可售（404 / PRODUCT_NOT_IN_STOREFRONT 等）
- * - open_refused：详情已取回但 builder 拒绝（售罄、渠道竞态等）
+ * - open_refused：详情已取回但确认层 builder 拒绝（渠道竞态等）
  *
  * 忙锁冲突、过期序号、中途离开渠道、瞬时失败（503/429/网络）：保留 query，避免推广链被误吞。
  */

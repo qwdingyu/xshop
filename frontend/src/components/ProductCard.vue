@@ -3,8 +3,8 @@
     class="product-card"
     :class="{ 'out-of-stock': isSoldOut, 'is-compact': displayMode === 'compact' }"
     role="button"
-    :tabindex="isSoldOut ? -1 : 0"
-    :aria-disabled="isSoldOut"
+    tabindex="0"
+    :aria-label="isSoldOut ? `${product.title}，已售罄，查看详情` : undefined"
     @click="handleClick"
     @keydown.enter="handleClick"
     @keydown.space.prevent="handleClick"
@@ -52,8 +52,8 @@
           <span v-else-if="!isSoldOut && showsLowStock" class="product-stock low">{{ stockLabel }}</span>
           <span v-else-if="!isSoldOut && stockLabel" class="product-stock">{{ stockLabel }}</span>
           <span v-if="purchaseLimitLabel" class="product-stock limit">{{ purchaseLimitLabel }}</span>
-          <span v-if="displayMode === 'compact' && !isSoldOut" class="compact-action">
-            {{ product.priceCents === 0 ? '领取' : '购买' }}
+          <span v-if="displayMode === 'compact'" class="compact-action" :class="{ muted: isSoldOut }">
+            {{ isSoldOut ? '查看' : (product.priceCents === 0 ? '领取' : '购买') }}
           </span>
         </div>
       </div>
@@ -115,8 +115,8 @@ const stockLabel = computed(() => productStockLabel(props.product))
 const purchaseLimitLabel = computed(() => productPurchaseLimitLabel(props.product))
 const showsLowStock = computed(() => productShowsLowStock(props.product))
 
+/** 售罄仍可打开支付前确认层（查看/复制链接）；购买由确认层与 checkout builder 拒绝 */
 function handleClick() {
-  if (isSoldOut.value) return
   emit('pay', props.product)
 }
 </script>
@@ -152,9 +152,9 @@ function handleClick() {
   outline-offset: 2px;
 }
 
-/* 售罄：内容降透明，避免与入场动画的 opacity 终值冲突 */
+/* 售罄：仍可点击打开确认层（查看/复制）；仅视觉降透明 */
 .product-card.out-of-stock {
-  cursor: default;
+  cursor: pointer;
 }
 
 .product-card.out-of-stock .product-cover,
@@ -372,7 +372,14 @@ function handleClick() {
   flex-shrink: 0;
 }
 
-.product-card.is-compact:hover:not(.out-of-stock) .compact-action {
+/* 售罄：次要「查看」动作，仍可进确认层 */
+.compact-action.muted {
+  color: var(--tg-hint);
+  background: var(--surface, rgba(255, 255, 255, 0.08));
+  border: 0.5px solid var(--border);
+}
+
+.product-card.is-compact:hover .compact-action:not(.muted) {
   filter: brightness(1.08);
 }
 

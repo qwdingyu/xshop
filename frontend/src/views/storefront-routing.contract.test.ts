@@ -50,36 +50,76 @@ describe('storefront routing contract', () => {
     expect(shopSource).toContain('{{ loading ? \'加载中…\' : \'刷新\' }}')
   })
 
-  it('opens channel-scoped product deeplinks via the existing PayModal path only', () => {
-    // 渠道内 ?product= 深链：单次详情 + openPayFromFetchedProduct，禁止另起收银台或跳转其他渠道。
+  it('allows sold-out catalog cards to open the confirm sheet for view/copy', () => {
+    // 售罄卡仍可点开确认层（与深链一致）；购买由确认层/checkout builder 拒绝
+    expect(productCardSource).not.toMatch(/if \(isSoldOut\.value\) return/)
+    expect(productCardSource).toContain("emit('pay', props.product)")
+    expect(productCardSource).toContain('售罄仍可打开支付前确认层')
+    expect(productCardSource).toContain("isSoldOut ? '查看'")
+  })
+
+  it('opens channel-scoped product deeplinks via confirm-first then existing PayModal', () => {
+    // 渠道内 ?product=：单次详情 → 轻量确认层；购买再进现有 PayModal（禁止另起收银台/全局商品路由）。
     expect(shopSource).toContain('tryOpenProductDeeplink')
     expect(shopSource).toContain('parseProductDeeplinkQuery')
     expect(shopSource).toContain('scrubProductDeeplinkQuery')
     expect(shopSource).toContain('shouldScrubProductDeeplinkAfterAttempt')
     expect(shopSource).toContain('classifyDeeplinkFetchFailure')
-    expect(shopSource).toContain('openPayFromFetchedProduct')
+    expect(shopSource).toContain('ProductConfirmSheet')
+    expect(shopSource).toContain('showProductConfirm')
+    expect(shopSource).toContain('buildProductConfirmFromFetchedProduct')
     expect(shopSource).toContain('buildOpenCheckoutFromFetchedProduct')
+    expect(shopSource).toContain('buildUserStorefrontBuyUrl')
+    expect(shopSource).toContain('productLinkKey')
     expect(shopSource).toContain('fetchProductDetail(productKey, storefrontSlug)')
-    expect(shopSource).toContain('openPayFromFetchedProduct(latest, storefrontId)')
+    expect(shopSource).toContain('fetchProductDetail(detailKey, activeStorefront.slug)')
+    expect(shopSource).toContain('showProductConfirm(latest, storefrontId)')
     expect(shopSource).toContain('void tryOpenProductDeeplink(catalog.storefront.id, catalog.storefront.slug)')
-    // 成功深链不得再委托 handlePay（否则二次详情请求）
+    // 重载目录关闭确认层，避免旧 SKU 错位
+    expect(shopSource).toContain('closeProductConfirm()')
+    // 成功路径：确认层打开；购买仅从确认层进 PayModal，不二次拉详情；进支付前收起确认层
+    expect(shopSource).toContain('function buyFromConfirm')
+    expect(shopSource).toContain('closeProductConfirm()')
+    expect(shopSource).toContain('open(result.payProduct)')
     expect(shopSource).not.toContain('await handlePay(latest)')
+    // 卡片与深链均先确认，禁止 happy path 直开支付
+    expect(shopSource).toContain('handleOpenProduct')
+    expect(shopSource).toContain('@pay="handleOpenProduct"')
     // homePath 纠正必须保留推广 query
     expect(shopSource).toContain('const requestedQuery = { ...route.query }')
     expect(shopSource).toContain('query: requestedQuery')
-    // scrub 必须走决策层；catch 必须 classify，禁止一律 unsellable（503 会误吞推广链）
+    // scrub 必须走决策层；catch 必须 classify
     expect(shopSource).toContain('if (shouldScrub)')
     expect(shopSource).toContain("outcome = 'busy_conflict'")
-    expect(shopSource).toContain("opened ? 'opened' : 'open_refused'")
+    expect(shopSource).toContain("shown ? 'opened' : 'open_refused'")
     expect(shopSource).toContain('const failureKind = classifyDeeplinkFetchFailure(err)')
     expect(shopSource).toContain('outcome = failureKind')
     expect(shopSource).not.toContain("outcome = 'unsellable'")
-    // 失败文案：确认不可售 vs 瞬时可重试，均不暗示改道
     expect(shopSource).toContain('商品在当前渠道不可售或已下架')
     expect(shopSource).toContain('打开商品失败，请稍后重试')
     expect(shopSource).toContain('正在打开商品…')
     expect(shopSource).toContain('正在打开其他商品，请稍候再试')
+    expect(shopSource).toContain('购买链接已复制')
     expect(shopSource).not.toContain('router.push({ path: \'/p/')
     expect(shopSource).not.toContain('path: `/product/')
+  })
+})
+
+describe('product confirm sheet contract', () => {
+  const confirmSource = readFileSync(new URL('../components/ProductConfirmSheet.vue', import.meta.url), 'utf8')
+
+  it('never surfaces delivery-only salesCopy and only uses public description', () => {
+    // salesCopy 为交付内容，店面 API 剥离；确认层正文只用 description
+    expect(confirmSource).not.toMatch(/p\.salesCopy/)
+    expect(confirmSource).not.toMatch(/salesCopy ===/)
+    expect(confirmSource).toContain('p.description')
+    expect(confirmSource).toContain('salesCopy 为交付内容')
+  })
+
+  it('locks body scroll and traps focus while open', () => {
+    expect(confirmSource).toContain("document.body.style.overflow = 'hidden'")
+    expect(confirmSource).toContain("event.key === 'Escape'")
+    expect(confirmSource).toContain("event.key !== 'Tab'")
+    expect(confirmSource).toContain('buyBtnEl')
   })
 })
