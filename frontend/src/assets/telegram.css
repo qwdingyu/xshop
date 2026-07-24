@@ -70,6 +70,15 @@
   line-height: 1;
 }
 
+/* 店面工具栏吸顶：TG 桌面有顶栏；TG 移动端仅底栏，工具栏贴顶 */
+.platform-telegram-desktop {
+  --shop-sticky-top: 52px;
+}
+
+.platform-telegram-mobile {
+  --shop-sticky-top: 0px;
+}
+
 /* ── Telegram 桌面端：顶部导航 ── */
 .tg-desktop-nav {
   display: flex;

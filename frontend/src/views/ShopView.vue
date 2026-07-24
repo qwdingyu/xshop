@@ -1,15 +1,22 @@
 <template>
   <div class="shop-view">
+    <!-- 吸顶工具栏：catalog / compact 共用；滚动时固定标题+分类+信任条，商品网格仍滚动 -->
     <div class="shop-toolbar">
       <div class="shop-toolbar-main">
         <div class="shop-heading">
           <h1 class="section-title">商品</h1>
-        </div>
-        <div class="shop-toolbar-actions">
-          <button v-if="showInlineRecharge" class="btn btn-primary btn-sm" @click="openRecharge">充值</button>
-          <button class="btn btn-ghost btn-sm" @click="refresh" :disabled="loading">
+          <!-- 刷新紧挨「商品」标题右侧，少量间距；充值仍靠右（TG 移动内联） -->
+          <button
+            class="btn btn-ghost btn-sm shop-refresh"
+            type="button"
+            @click="refresh"
+            :disabled="loading"
+          >
             {{ loading ? '加载中…' : '刷新' }}
           </button>
+        </div>
+        <div v-if="showInlineRecharge" class="shop-toolbar-actions">
+          <button class="btn btn-primary btn-sm" type="button" @click="openRecharge">充值</button>
         </div>
       </div>
 
@@ -547,10 +554,19 @@ watch(
 }
 
 .shop-toolbar {
+  /* 页面滚动时固定红框区域（标题+分类+信任条）；catalog/compact 同一 DOM */
+  position: sticky;
+  top: var(--shop-sticky-top, 0px);
+  z-index: 40;
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-bottom: 10px;
+  padding: 6px 0 10px;
+  /* 不透明底，避免滚动商品透出叠字 */
+  background: var(--tg-bg);
+  border-bottom: 0.5px solid var(--border);
+  box-shadow: 0 8px 16px -12px rgba(0, 0, 0, 0.55);
 }
 
 .deeplink-status {
@@ -574,16 +590,34 @@ watch(
 }
 
 .shop-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
 }
 
-.shop-toolbar-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.shop-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
 
 .shop-heading .section-title {
+  margin: 0;
   color: var(--tg-text);
   font-size: var(--font-section-title);
   font-weight: 700;
   line-height: 1.2;
+}
+
+.shop-refresh {
+  flex-shrink: 0;
+  color: var(--tg-hint);
+}
+
+.shop-refresh:hover:not(:disabled) {
+  color: var(--tg-text);
 }
 
 .product-grid.is-compact {

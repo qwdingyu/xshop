@@ -48,6 +48,14 @@
   --admin-info: var(--admin-accent-text);
   --admin-info-soft: var(--admin-accent-soft);
   --admin-info-border: var(--admin-accent-border);
+  /* 店面货架促销（成交向）：暖玫红，与品牌冷蓝按钮区分，引导价格锚点 */
+  --shop-sale: #fb7185;
+  --shop-sale-strong: #f43f5e;
+  --shop-sale-soft: rgba(244, 63, 94, 0.16);
+  --shop-sale-border: rgba(244, 63, 94, 0.42);
+  --shop-sale-text: #fecdd3;
+  /* 店面工具栏吸顶：贴在 Header 下方（TG 移动端无顶栏 → 0） */
+  --shop-sticky-top: 0px;
   /* 兼容旧别名：ConfirmDialog 等曾引用未定义的 --tg-surface-2 / --tg-muted */
   --tg-surface-2: var(--surface-2);
   --tg-border: var(--border);

@@ -52,13 +52,22 @@
       <div class="product-footer">
         <div
           class="product-price-block"
+          :class="{ 'has-promo': priceDisplay.hasDiscount }"
           :aria-label="priceDisplay.hasDiscount
             ? `现价 ${priceDisplay.priceLabel}，原价 ${priceDisplay.originalLabel}`
             : undefined"
         >
-          <span class="product-price" :class="{ 'is-free': product.priceCents === 0 }">{{ priceDisplay.priceLabel }}</span>
-          <span v-if="priceDisplay.hasDiscount" class="product-original-price">
-            {{ priceDisplay.originalLabel }}
+          <div class="product-price-main">
+            <span
+              class="product-price"
+              :class="{ 'is-free': product.priceCents === 0, 'is-sale': priceDisplay.hasDiscount && product.priceCents > 0 }"
+            >{{ priceDisplay.priceLabel }}</span>
+            <span v-if="priceDisplay.hasDiscount" class="product-original-price">
+              {{ priceDisplay.originalLabel }}
+            </span>
+          </div>
+          <span v-if="priceDisplay.hasDiscount && priceDisplay.saveLabel" class="product-save-chip">
+            {{ priceDisplay.saveLabel }}
           </span>
         </div>
         <div class="product-status-action">
@@ -304,9 +313,19 @@ function handleClick() {
   color: #fff;
 }
 
+/* 促销角标：暖玫红，与库存/售罄语义色分离，强化「省钱」锚点 */
 .stock-badge.discount {
-  background: color-mix(in srgb, var(--admin-success, #6ee7b7) 78%, #0f172a);
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   color: #fff;
+  background: linear-gradient(
+    135deg,
+    var(--shop-sale-strong, #f43f5e) 0%,
+    var(--shop-sale, #fb7185) 100%
+  );
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--shop-sale-strong, #f43f5e) 45%, transparent);
 }
 
 .product-info {
@@ -340,14 +359,19 @@ function handleClick() {
 
 .inline-discount-badge {
   flex-shrink: 0;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: var(--r-full);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.4;
   white-space: nowrap;
-  background: color-mix(in srgb, var(--admin-success, #6ee7b7) 78%, #0f172a);
   color: #fff;
+  background: linear-gradient(
+    135deg,
+    var(--shop-sale-strong, #f43f5e) 0%,
+    var(--shop-sale, #fb7185) 100%
+  );
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--shop-sale-strong, #f43f5e) 40%, transparent);
 }
 
 .product-desc {
@@ -444,6 +468,14 @@ function handleClick() {
 
 .product-price-block {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.product-price-main {
+  display: flex;
   align-items: baseline;
   gap: 6px;
   flex-wrap: wrap;
@@ -451,10 +483,18 @@ function handleClick() {
 }
 
 .product-price {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 17px;
+  font-weight: 800;
   color: var(--tg-btn);
   white-space: nowrap;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+/* 促销现价：成交色，压过默认品牌蓝 */
+.product-price.is-sale {
+  color: var(--shop-sale, #fb7185);
+  font-size: 18px;
 }
 
 .product-price.is-free {
@@ -462,10 +502,42 @@ function handleClick() {
   text-shadow: none;
 }
 
+.product-price.is-free.is-sale {
+  color: var(--shop-sale, #fb7185);
+}
+
 .product-original-price {
-  font-size: 11px;
-  color: var(--tg-hint);
+  font-size: 12px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--tg-hint) 88%, transparent);
   text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  opacity: 0.92;
+}
+
+/* 「省 ¥x」微条：与角标同色系，脚部二次锚点 */
+.product-save-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: nowrap;
+  color: var(--shop-sale-text, #fecdd3);
+  background: var(--shop-sale-soft, rgba(244, 63, 94, 0.16));
+  border: 0.5px solid var(--shop-sale-border, rgba(244, 63, 94, 0.42));
+}
+
+.product-card.is-compact .product-price.is-sale {
+  font-size: 16px;
+}
+
+.product-card.is-compact .product-save-chip {
+  font-size: 10px;
+  padding: 0 5px;
 }
 
 .product-stock {

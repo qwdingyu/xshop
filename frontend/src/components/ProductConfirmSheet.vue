@@ -47,7 +47,13 @@
                   ? `现价 ${priceDisplay.priceLabel}，原价 ${priceDisplay.originalLabel}`
                   : undefined"
               >
-                <span class="confirm-price" :class="{ free: product.priceCents === 0 }">
+                <span
+                  class="confirm-price"
+                  :class="{
+                    free: product.priceCents === 0,
+                    sale: priceDisplay.hasDiscount && product.priceCents > 0,
+                  }"
+                >
                   {{ priceDisplay.priceLabel }}
                 </span>
                 <span v-if="priceDisplay.hasDiscount" class="confirm-original">{{ priceDisplay.originalLabel }}</span>
@@ -434,27 +440,41 @@ function emitClose() {
 }
 
 .confirm-price {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 800;
   color: var(--tg-btn, var(--tg-button, #2aabee));
-  line-height: 1.2;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
 }
 
 .confirm-price.free {
   color: var(--admin-success, #6ee7b7);
 }
 
+/* 确认层促销现价：与卡片同一成交色（付费促销）；限免仍用 free 绿 */
+.confirm-price.sale {
+  color: var(--shop-sale, #fb7185);
+}
+
 .confirm-original {
-  font-size: 13px;
-  color: var(--tg-hint);
+  font-size: 14px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--tg-hint) 90%, transparent);
   text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
 }
 
 .confirm-save {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
   font-size: 12px;
-  font-weight: 600;
-  color: var(--admin-success, #16a34a);
-  line-height: 1.2;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--shop-sale-text, #fecdd3);
+  background: var(--shop-sale-soft, rgba(244, 63, 94, 0.16));
+  border: 0.5px solid var(--shop-sale-border, rgba(244, 63, 94, 0.42));
 }
 
 .confirm-stock-row {

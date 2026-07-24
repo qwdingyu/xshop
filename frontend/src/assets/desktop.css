@@ -12,6 +12,12 @@
   padding: 0 var(--content-pad);
 }
 
+/* 店面商品工具栏吸顶偏移：与 .h5-header 大致等高，避免被顶栏盖住 */
+.platform-h5-desktop,
+.platform-h5-mobile {
+  --shop-sticky-top: 52px;
+}
+
 /* Admin 管理后台不走居中限制，占满可用宽度 */
 .admin-layout {
   max-width: none;

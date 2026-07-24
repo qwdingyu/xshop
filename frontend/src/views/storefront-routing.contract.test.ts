@@ -48,6 +48,18 @@ describe('storefront routing contract', () => {
     expect(headerSource).toContain('class="btn btn-primary header-recharge"')
     expect(shopSource).toContain('showInlineRecharge')
     expect(shopSource).toContain('{{ loading ? \'加载中…\' : \'刷新\' }}')
+    // 刷新紧挨「商品」标题右侧；非工具行最右
+    expect(shopSource).toContain('class="btn btn-ghost btn-sm shop-refresh"')
+    expect(shopSource).toMatch(/section-title">商品[\s\S]*?shop-refresh/)
+  })
+
+  it('pins the shop toolbar (heading + filters + trust strip) while scrolling for both templates', () => {
+    // catalog / compact 共用 .shop-toolbar；sticky + 不透明底避免透字
+    expect(shopSource).toContain('class="shop-toolbar"')
+    expect(shopSource).toContain('position: sticky')
+    expect(shopSource).toContain('top: var(--shop-sticky-top')
+    expect(shopSource).toContain('background: var(--tg-bg)')
+    expect(shopSource).toContain(':display-mode="storefrontTemplate"')
   })
 
   it('allows sold-out catalog cards to open the confirm sheet for view/copy', () => {
@@ -126,6 +138,8 @@ describe('product confirm sheet contract', () => {
     expect(confirmSource).toContain("from '@/lib/product-price-display'")
     expect(confirmSource).toContain('buildListPriceDisplay')
     expect(confirmSource).toContain('confirm-save')
+    // 促销成交色：与卡片/收银台同一 token 族
+    expect(confirmSource).toContain('--shop-sale')
   })
 
   it('locks body scroll and traps focus while open', () => {

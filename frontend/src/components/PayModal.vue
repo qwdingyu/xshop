@@ -53,7 +53,13 @@
                       ? `现价 ${listPriceDisplay.priceLabel}，原价 ${listPriceDisplay.originalLabel}`
                       : undefined"
                   >
-                    <span class="summary-price">{{ listPriceDisplay.priceLabel }}</span>
+                    <span
+                      class="summary-price"
+                      :class="{
+                        'is-free': product.priceCents === 0,
+                        'is-sale': listPriceDisplay.hasDiscount && product.priceCents > 0,
+                      }"
+                    >{{ listPriceDisplay.priceLabel }}</span>
                     <span v-if="listPriceDisplay.hasDiscount" class="summary-original">{{ listPriceDisplay.originalLabel }}</span>
                     <span v-if="listPriceDisplay.saveLabel" class="summary-save">{{ listPriceDisplay.saveLabel }}</span>
                   </div>
@@ -1508,25 +1514,42 @@ onUnmounted(() => {
 }
 
 .summary-price {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 800;
   color: var(--tg-btn);
-  line-height: 1.25;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+/* 收银台摘要促销：现价暖色；免费领取仍用成功绿。应付金额区不改，仍走服务端 amount */
+.summary-price.is-sale {
+  color: var(--shop-sale, #fb7185);
+}
+
+.summary-price.is-free {
+  color: var(--admin-success, #6ee7b7);
 }
 
 .summary-original {
   font-size: 12px;
   font-weight: 500;
-  color: var(--tg-hint);
+  color: color-mix(in srgb, var(--tg-hint) 90%, transparent);
   text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
   line-height: 1.25;
 }
 
 .summary-save {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--admin-success, #16a34a);
-  line-height: 1.25;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--shop-sale-text, #fecdd3);
+  background: var(--shop-sale-soft, rgba(244, 63, 94, 0.16));
+  border: 0.5px solid var(--shop-sale-border, rgba(244, 63, 94, 0.42));
 }
 
 /* ── Order fields group（消除商品与表单之间的悬空白） ── */
