@@ -38,8 +38,11 @@ describe('admin commerce settings contract', () => {
 
   it('defaults free-product purchase limit guidance to one claim per mailbox', () => {
     expect(productsSource).toContain("isFreeProductPrice ? '免费商品默认 1，可改大'")
-    expect(productsSource).toContain('免费商品未填写时后端按每邮箱 1 次限购')
+    expect(productsSource).toContain('免费商品未填写时保存与后端均按每邮箱 1 次限购')
     expect(productsSource).toContain("if (parseMajorToMinor(form.priceMajor, form.currency) === 0) return 1")
+    // 新建表单不得写死 purchaseLimit: '1'，否则改成付费价也会误带每人限 1
+    expect(productsSource).toMatch(/purchaseLimit:\s*''/)
+    expect(productsSource).toContain('付费商品留空表示不限购')
   })
 
   it('uses an on-row shelf switch instead of a sort jump in product ops', () => {

@@ -436,7 +436,7 @@
                   :placeholder="isFreeProductPrice ? '免费商品默认 1，可改大' : '留空或 0 表示不限购'"
                 />
                 <small v-if="isFreeProductPrice" class="field-help">
-                  免费商品未填写时后端按每邮箱 1 次限购；建议显式设为 1 或更大值
+                  免费商品未填写时保存与后端均按每邮箱 1 次限购；付费商品留空表示不限购
                 </small>
               </label>
             </div>
@@ -931,8 +931,10 @@ function openDialog(item?: AdminProduct) {
       fulfillmentInputLabel: '',
       fulfillmentInputHint: '',
       fulfillmentInputRequired: false,
-      purchaseLimit: '1',
-      purchaseLimitDisplay: true,
+      // 新建表单默认价虽是 0，限购仍留空：付费改价后不会误带「每人 1 件」；
+      // 免费商品在保存时由 normalizedPurchaseLimit / 后端 effectivePurchaseLimit 兜底为 1。
+      purchaseLimit: '',
+      purchaseLimitDisplay: false,
       active: true,
       storefrontIds: storefronts.value.filter(item => item.isDefault).map(item => item.id),
     })
@@ -944,7 +946,8 @@ function openDialog(item?: AdminProduct) {
 function normalizedPurchaseLimit(): number | null {
   const raw = String(form.purchaseLimit || '').trim()
   if (!raw) {
-    // 运营侧：新建/保存免费商品未填限购时默认 1（与后端兜底一致）
+    // 仅免费商品：未填写时保存为 1（与后端 effectivePurchaseLimitForProduct 一致）。
+    // 付费商品空限购表示不限，禁止把「新建默认 1」套到所有商品上。
     try {
       if (parseMajorToMinor(form.priceMajor, form.currency) === 0) return 1
     } catch {

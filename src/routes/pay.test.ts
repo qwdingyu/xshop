@@ -1717,6 +1717,13 @@ describe("POST /pay/unified", () => {
     expect(body.details?.code).toBe("EMAIL_VERIFICATION_REQUIRED");
     expect(idempotencyState.clearedPending).toBe(true);
     expect(emailAccessMocks.verifyEmailAccessCode).toHaveBeenCalled();
+    // 验码失败不得消耗 free_claim 成功配额
+    expect(enforceRateLimit).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "free_claim",
+      3,
+      expect.anything(),
+    );
     expect(fulfillmentServiceMocks.lockFulfillmentInventoryItems).not.toHaveBeenCalled();
   });
 
@@ -1860,7 +1867,9 @@ describe("POST /pay/unified", () => {
     expect(body.ok).toBe(false);
     expect(body.error).toContain("频繁");
     expect(idempotencyState.clearedPending).toBe(true);
-    expect(emailAccessMocks.verifyEmailAccessCode).not.toHaveBeenCalled();
+    // free_claim 在验码通过之后：超限时验证码已校验，但不会进入锁库
+    expect(emailAccessMocks.verifyEmailAccessCode).toHaveBeenCalled();
+    expect(fulfillmentServiceMocks.lockFulfillmentInventoryItems).not.toHaveBeenCalled();
   });
 
   it("rejects free claim when free-claim mailbox rate limit is exceeded", async () => {

@@ -908,7 +908,19 @@ payRoute.post("/pay/unified", async (c) => {
       await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
       return fail(c, "免费领取需要邮件服务发送验证码，请联系管理员配置", 503, { code: "EMAIL_REQUIRED_FOR_FREE_CLAIM" });
     }
-    // 与方案文档一致：免费领取 IP 按「每小时」计数，默认最多 3 次，与付费 pay_unified（每分钟）解耦。
+    const emailAccessSecret = getEmailAccessSecret(c.env.ADMIN_TOKEN, c.req.url);
+    if (!emailAccessSecret) {
+      await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
+      return fail(c, "邮箱验证服务未安全配置，请联系管理员", 503, { code: "EMAIL_ACCESS_UNAVAILABLE" });
+    }
+    // 先验码再计 free_claim：错误/过期验证码不得消耗「每小时 3 次」成功配额，避免自锁与刷锁。
+    const mailboxVerified = await verifyEmailAccessCode(normalizedBuyerEmail, emailAccessCode, emailAccessSecret);
+    if (!mailboxVerified) {
+      await writeRequestLog(c, "free_claim", 403, limit.ipHash);
+      await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
+      return fail(c, "邮箱验证码无效或已过期", 403, { code: "EMAIL_VERIFICATION_REQUIRED" });
+    }
+    // 仅邮箱归属通过后计入 IP 固定窗（默认 3 次/小时），与付费 pay_unified（每分钟）解耦。
     const freeAuthLimit = await enforceRateLimit(c, "free_claim", 3, {
       windowSeconds: 3600,
       message: "免费领取过于频繁，请一小时后再试",
@@ -916,17 +928,6 @@ payRoute.post("/pay/unified", async (c) => {
     if (!freeAuthLimit.ok) {
       await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
       return fail(c, freeAuthLimit.message || "免费领取过于频繁，请稍后再试", freeAuthLimit.status || 429);
-    }
-    const emailAccessSecret = getEmailAccessSecret(c.env.ADMIN_TOKEN, c.req.url);
-    if (!emailAccessSecret) {
-      await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
-      return fail(c, "邮箱验证服务未安全配置，请联系管理员", 503, { code: "EMAIL_ACCESS_UNAVAILABLE" });
-    }
-    const mailboxVerified = await verifyEmailAccessCode(normalizedBuyerEmail, emailAccessCode, emailAccessSecret);
-    if (!mailboxVerified) {
-      await writeRequestLog(c, "free_claim", 403, freeAuthLimit.ipHash);
-      await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
-      return fail(c, "邮箱验证码无效或已过期", 403, { code: "EMAIL_VERIFICATION_REQUIRED" });
     }
   }
   let productCurrency: ReturnType<typeof normalizeCurrencyCode>;
