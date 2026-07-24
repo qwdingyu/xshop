@@ -4,8 +4,22 @@ import type { DbType } from "../db/client";
 import type { AppEnv, FulfillmentMode } from "../bindings";
 import { cards, idempotencyKeys, orderItems, orders } from "../db/schema";
 import { enforceRateLimit } from "../lib/rate-limit";
+import type { RuntimeConfig } from "../lib/runtime-config";
 
 const STRONG_IDEMPOTENCY_KEY = "k".repeat(32);
+
+/** 测试用 RuntimeConfig 完整默认值，避免 tsc 因缺字段失败 */
+function mockRuntimeConfig(overrides: Partial<RuntimeConfig> = {}): RuntimeConfig {
+  return {
+    resendApiKey: "",
+    emailFrom: "",
+    turnstileEnabled: false,
+    turnstileSecretKey: "",
+    allowTurnstileBypassForSmoke: false,
+    inventoryWarningEmailTo: "",
+    ...overrides,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Mock fulfillment-service（createOfflineOrder 依赖的锁库存函数）
@@ -170,13 +184,25 @@ vi.mock("../lib/runtime-config", () => ({
     turnstileEnabled: false,
     turnstileSecretKey: "",
     allowTurnstileBypassForSmoke: false,
+    inventoryWarningEmailTo: "",
   }),
-  mergeRuntimeConfig: vi.fn((dbConfig: Record<string, unknown>, env: Record<string, unknown> = {}) => ({
-    ...dbConfig,
+  mergeRuntimeConfig: vi.fn((
+    dbConfig: RuntimeConfig,
+    env: {
+      RESEND_API_KEY?: string;
+      EMAIL_FROM?: string;
+      TURNSTILE_SECRET_KEY?: string;
+      ALLOW_TURNSTILE_BYPASS_FOR_SMOKE?: string;
+      INVENTORY_WARNING_EMAIL_TO?: string;
+    } = {},
+  ): RuntimeConfig => ({
     resendApiKey: dbConfig.resendApiKey || env.RESEND_API_KEY || "",
     emailFrom: dbConfig.emailFrom || env.EMAIL_FROM || "",
+    turnstileEnabled: dbConfig.turnstileEnabled,
+    turnstileSecretKey: dbConfig.turnstileSecretKey || env.TURNSTILE_SECRET_KEY || "",
     allowTurnstileBypassForSmoke:
       dbConfig.allowTurnstileBypassForSmoke || env.ALLOW_TURNSTILE_BYPASS_FOR_SMOKE === "true",
+    inventoryWarningEmailTo: dbConfig.inventoryWarningEmailTo || env.INVENTORY_WARNING_EMAIL_TO || "",
   })),
 }));
 
@@ -920,22 +946,24 @@ describe("POST /pay/unified", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     const { readRuntimeConfig, mergeRuntimeConfig } = await import("../lib/runtime-config");
-    vi.mocked(readRuntimeConfig).mockReset().mockResolvedValue({
-      resendApiKey: "",
-      emailFrom: "",
-      turnstileEnabled: false,
-      turnstileSecretKey: "",
-      allowTurnstileBypassForSmoke: false,
-    });
+    vi.mocked(readRuntimeConfig).mockReset().mockResolvedValue(mockRuntimeConfig());
     vi.mocked(mergeRuntimeConfig).mockReset().mockImplementation((
-      dbConfig: Record<string, unknown>,
-      env: Record<string, unknown> = {},
-    ) => ({
-      ...dbConfig,
+      dbConfig: RuntimeConfig,
+      env: {
+        RESEND_API_KEY?: string;
+        EMAIL_FROM?: string;
+        TURNSTILE_SECRET_KEY?: string;
+        ALLOW_TURNSTILE_BYPASS_FOR_SMOKE?: string;
+        INVENTORY_WARNING_EMAIL_TO?: string;
+      } = {},
+    ): RuntimeConfig => ({
       resendApiKey: dbConfig.resendApiKey || env.RESEND_API_KEY || "",
       emailFrom: dbConfig.emailFrom || env.EMAIL_FROM || "",
+      turnstileEnabled: dbConfig.turnstileEnabled,
+      turnstileSecretKey: dbConfig.turnstileSecretKey || env.TURNSTILE_SECRET_KEY || "",
       allowTurnstileBypassForSmoke:
         dbConfig.allowTurnstileBypassForSmoke || env.ALLOW_TURNSTILE_BYPASS_FOR_SMOKE === "true",
+      inventoryWarningEmailTo: dbConfig.inventoryWarningEmailTo || env.INVENTORY_WARNING_EMAIL_TO || "",
     }));
     storefrontServiceMocks.resolvePublicStorefront.mockResolvedValue(defaultStorefront);
     storefrontServiceMocks.getActiveStorefrontById.mockResolvedValue(defaultStorefront);
@@ -1245,13 +1273,10 @@ describe("POST /pay/unified", () => {
   it("does not quote coupons for free products even when compare-at originalPriceCents is set", async () => {
     // 限免：price=0 + original>0 仍是免费领取语义，不得走优惠码报价
     const { readRuntimeConfig } = await import("../lib/runtime-config");
-    vi.mocked(readRuntimeConfig).mockResolvedValue({
+    vi.mocked(readRuntimeConfig).mockResolvedValue(mockRuntimeConfig({
       resendApiKey: "re_test",
       emailFrom: "shop@example.com",
-      turnstileEnabled: false,
-      turnstileSecretKey: "",
-      allowTurnstileBypassForSmoke: false,
-    } as never);
+    }));
     const { app } = createUnifiedPayApp({
       product: { priceCents: 0, originalPriceCents: 500, issueMode: "direct", fulfillmentMode: "virtual", salesCopy: "领取内容" },
     });
@@ -1648,13 +1673,10 @@ describe("POST /pay/unified", () => {
   ])("rejects base-free product requests that bypass the simplified checkout: $name", async ({ payload, code, status }) => {
     const { app, idempotencyState } = createUnifiedPayApp({ product: { priceCents: 0 } });
     const { readRuntimeConfig } = await import("../lib/runtime-config");
-    vi.mocked(readRuntimeConfig).mockResolvedValueOnce({
+    vi.mocked(readRuntimeConfig).mockResolvedValueOnce(mockRuntimeConfig({
       resendApiKey: "re_test",
       emailFrom: "shop@example.com",
-      turnstileEnabled: false,
-      turnstileSecretKey: "",
-      allowTurnstileBypassForSmoke: false,
-    } as never);
+    }));
 
     const res = await app.request("https://shop.example.com/api/pay/unified", {
       method: "POST",
@@ -1677,13 +1699,10 @@ describe("POST /pay/unified", () => {
   it("rejects free claim when mailbox verification fails", async () => {
     emailAccessMocks.verifyEmailAccessCode.mockResolvedValueOnce(false);
     const { readRuntimeConfig } = await import("../lib/runtime-config");
-    vi.mocked(readRuntimeConfig).mockResolvedValueOnce({
+    vi.mocked(readRuntimeConfig).mockResolvedValueOnce(mockRuntimeConfig({
       resendApiKey: "re_test",
       emailFrom: "shop@example.com",
-      turnstileEnabled: false,
-      turnstileSecretKey: "",
-      allowTurnstileBypassForSmoke: false,
-    } as never);
+    }));
     const { app, idempotencyState } = createUnifiedPayApp({ product: { priceCents: 0 } });
 
     const res = await app.request("https://shop.example.com/api/pay/unified", {
@@ -1720,13 +1739,10 @@ describe("POST /pay/unified", () => {
 
   async function enableFreeClaimMail() {
     const { readRuntimeConfig } = await import("../lib/runtime-config");
-    vi.mocked(readRuntimeConfig).mockResolvedValue({
+    vi.mocked(readRuntimeConfig).mockResolvedValue(mockRuntimeConfig({
       resendApiKey: "re_test",
       emailFrom: "shop@example.com",
-      turnstileEnabled: false,
-      turnstileSecretKey: "",
-      allowTurnstileBypassForSmoke: false,
-    } as never);
+    }));
   }
 
   it("issues a base-free product once without quoting coupons or invoking a payment provider", async () => {
