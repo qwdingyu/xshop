@@ -17,7 +17,7 @@ import { cleanupExpiredOrders } from "./cleanup-service";
 /** 与 order-service 测试夹具一致：免费领取 createOrder 必须带可过验的 6 位码 */
 const SCENARIO_ADMIN_TOKEN = "test-admin-token";
 
-async function withFreeEmailCode(input: CreateOrderInput): Promise<CreateOrderInput> {
+async function withEmailCode(input: CreateOrderInput): Promise<CreateOrderInput> {
   const email = (input.buyerEmail || "").trim().toLowerCase();
   const emailAccessCode = await createEmailAccessCode(email, SCENARIO_ADMIN_TOKEN);
   return { ...input, emailAccessCode };
@@ -288,10 +288,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
 
     const listProduct = (await listProducts(db)).find((product) => product.id === "expired-card-product");
     const detailProduct = await getProduct(db, "expired-card-product");
-    const orderResult = await createOrder(createContext(db), {
+    const orderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "expired-card-product",
       buyerEmail: "expired-card@example.com",
-    }, "ip-hash");
+    }), "ip-hash");
     const [expiredCard] = await db.select().from(cards).where(eq(cards.id, "expired-card-only"));
 
     expect(listProduct?.stock).toBe(0);
@@ -313,10 +313,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     });
     await seedCard(db, { id: "locked-then-card-expired-1", productId: "locked-then-card-expired", secret: "EXPIRES-AFTER-LOCK" });
 
-    const orderResult = await createOrder(createContext(db), {
+    const orderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "locked-then-card-expired",
       buyerEmail: "locked-expired@example.com",
-    }, "ip-hash");
+    }), "ip-hash");
     expect(orderResult.ok).toBe(true);
     if (!orderResult.ok) return;
 
@@ -347,10 +347,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     });
     await seedCard(db, { id: "paid-lock-cleanup-card", productId: "paid-lock-cleanup", secret: "KEEP-LOCKED-FOR-PAID" });
 
-    const orderResult = await createOrder(createContext(db), {
+    const orderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "paid-lock-cleanup",
       buyerEmail: "paid-lock-cleanup@example.com",
-    }, "ip-hash");
+    }), "ip-hash");
     expect(orderResult.ok).toBe(true);
     if (!orderResult.ok) return;
 
@@ -379,10 +379,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     });
     await seedCard(db, { id: "paid-lock-resale-card", productId: "paid-lock-resale", secret: "KEEP-FOR-PAID" });
 
-    const paidOrderResult = await createOrder(createContext(db), {
+    const paidOrderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "paid-lock-resale",
       buyerEmail: "paid-owner@example.com",
-    }, "ip-hash-paid-owner");
+    }), "ip-hash-paid-owner");
     expect(paidOrderResult.ok).toBe(true);
     if (!paidOrderResult.ok) return;
 
@@ -391,10 +391,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     await db.update(cards).set({ lockExpiresAt: new Date(now.getTime() - 60_000).toISOString() }).where(eq(cards.id, "paid-lock-resale-card"));
 
     const product = await getProduct(db, "paid-lock-resale");
-    const competingOrder = await createOrder(createContext(db), {
+    const competingOrder = await createOrder(createContext(db), await withEmailCode({
       productId: "paid-lock-resale",
       buyerEmail: "competing-buyer@example.com",
-    }, "ip-hash-competing");
+    }), "ip-hash-competing");
     const [card] = await db.select().from(cards).where(eq(cards.id, "paid-lock-resale-card"));
 
     expect(product?.stock).toBe(0);
@@ -415,10 +415,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     });
     await seedCard(db, { id: "pending-lock-resale-card", productId: "pending-lock-resale", secret: "KEEP-FOR-PENDING" });
 
-    const pendingOrderResult = await createOrder(createContext(db), {
+    const pendingOrderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "pending-lock-resale",
       buyerEmail: "pending-owner@example.com",
-    }, "ip-hash-pending-owner");
+    }), "ip-hash-pending-owner");
     expect(pendingOrderResult.ok).toBe(true);
     if (!pendingOrderResult.ok) return;
 
@@ -426,10 +426,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     await db.update(cards).set({ lockExpiresAt: new Date(now.getTime() - 60_000).toISOString() }).where(eq(cards.id, "pending-lock-resale-card"));
 
     const product = await getProduct(db, "pending-lock-resale");
-    const competingOrder = await createOrder(createContext(db), {
+    const competingOrder = await createOrder(createContext(db), await withEmailCode({
       productId: "pending-lock-resale",
       buyerEmail: "pending-competing@example.com",
-    }, "ip-hash-pending-competing");
+    }), "ip-hash-pending-competing");
     const [card] = await db.select().from(cards).where(eq(cards.id, "pending-lock-resale-card"));
 
     expect(product?.stock).toBe(0);
@@ -452,10 +452,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
 
     const storefrontProducts = await listProducts(db);
     const detail = await getProduct(db, "inactive-card");
-    const orderResult = await createOrder(createContext(db), {
+    const orderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "inactive-card",
       buyerEmail: "inactive@example.com",
-    }, "ip-hash");
+    }), "ip-hash");
     const [card] = await db.select().from(cards).where(eq(cards.id, "inactive-card-1"));
 
     expect(storefrontProducts.some((product) => product.id === "inactive-card")).toBe(false);
@@ -476,10 +476,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     });
     await seedCard(db, { id: "card-1", productId: "manual-card", secret: "SECRET-1", accountLabel: "ACC-1" });
 
-    const orderResult = await createOrder(createContext(db), {
+    const orderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "manual-card",
       buyerEmail: "buyer@example.com",
-    }, "ip-hash");
+    }), "ip-hash");
 
     expect(orderResult.ok).toBe(true);
     if (!orderResult.ok) return;
@@ -521,18 +521,18 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     await seedCard(db, { id: "limited-quantity-card-2", productId: "limited-quantity-card", secret: "LIMIT-2" });
     await seedCard(db, { id: "limited-quantity-card-3", productId: "limited-quantity-card", secret: "LIMIT-3" });
 
-    const first = await createOrder(createContext(db), {
+    const first = await createOrder(createContext(db), await withEmailCode({
       productId: "limited-quantity-card",
       buyerEmail: "limited@example.com",
       quantity: 1,
-    }, "ip-hash");
+    }), "ip-hash");
     expect(first.ok).toBe(true);
 
-    const second = await createOrder(createContext(db), {
+    const second = await createOrder(createContext(db), await withEmailCode({
       productId: "limited-quantity-card",
       buyerEmail: "limited@example.com",
       quantity: 2,
-    }, "ip-hash");
+    }), "ip-hash");
     const cardRows = await db.select().from(cards).where(eq(cards.productId, "limited-quantity-card"));
 
     expect(second).toMatchObject({ ok: false, status: 429, message: "该商品每人限购 2 件，您已达到上限" });
@@ -566,10 +566,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
       createdAt: new Date().toISOString(),
     });
 
-    const result = await createOrder(createContext(db), {
+    const result = await createOrder(createContext(db), await withEmailCode({
       productId: "case-insensitive-limit-card",
       buyerEmail: "buyer@example.com",
-    }, "ip-hash");
+    }), "ip-hash");
     const [availableCard] = await db.select().from(cards).where(eq(cards.id, "case-insensitive-limit-card-1"));
 
     expect(result).toMatchObject({ ok: false, status: 429 });
@@ -592,10 +592,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
       accountLabel: "",
     });
 
-    const orderResult = await createOrder(createContext(db), {
+    const orderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "secret-only-card",
       buyerEmail: "secret-only@example.com",
-    }, "ip-hash");
+    }), "ip-hash");
     expect(orderResult.ok).toBe(true);
     if (!orderResult.ok) return;
 
@@ -620,10 +620,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     });
     await seedCard(db, { id: "cancel-card-1", productId: "cancel-card", secret: "CANCEL-SECRET" });
 
-    const orderResult = await createOrder(createContext(db), {
+    const orderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "cancel-card",
       buyerEmail: "cancel@example.com",
-    }, "ip-hash");
+    }), "ip-hash");
     expect(orderResult.ok).toBe(true);
     if (!orderResult.ok) return;
 
@@ -648,10 +648,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     });
     await seedCard(db, { id: "cancel-paid-card-1", productId: "cancel-paid-card", secret: "PAID-CANCEL-SECRET" });
 
-    const orderResult = await createOrder(createContext(db), {
+    const orderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "cancel-paid-card",
       buyerEmail: "cancel-paid@example.com",
-    }, "ip-hash");
+    }), "ip-hash");
     expect(orderResult.ok).toBe(true);
     if (!orderResult.ok) return;
 
@@ -683,10 +683,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
       updatedAt: new Date().toISOString(),
     });
 
-    const insufficientOrder = await createOrder(createContext(db), {
+    const insufficientOrder = await createOrder(createContext(db), await withEmailCode({
       productId: "balance-card",
       buyerEmail: "balance@example.com",
-    }, "ip-hash");
+    }), "ip-hash");
     expect(insufficientOrder.ok).toBe(true);
     if (!insufficientOrder.ok) return;
     // 生产统一下单会在创建事务中写入 balance；通用 createOrder 夹具默认不带支付渠道。
@@ -711,10 +711,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     const redeemResult = await redeemVoucher(db, "VCH-BALANCE-OK", "balance@example.com");
     expect(redeemResult.success).toBe(true);
 
-    const paidOrder = await createOrder(createContext(db), {
+    const paidOrder = await createOrder(createContext(db), await withEmailCode({
       productId: "balance-card",
       buyerEmail: "balance@example.com",
-    }, "ip-hash");
+    }), "ip-hash");
     expect(paidOrder.ok).toBe(true);
     if (!paidOrder.ok) return;
     await db.update(orders).set({ paymentProvider: "balance" }).where(eq(orders.id, String(paidOrder.order.id)));
@@ -764,11 +764,11 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
       updatedAt: new Date().toISOString(),
     });
 
-    const orderResult = await createOrder(createContext(db), {
+    const orderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "balance-issued-guard",
       buyerEmail: "balance-issued@example.com",
       couponCode: "BALANCE-ONCE",
-    }, "ip-hash");
+    }), "ip-hash");
     expect(orderResult.ok).toBe(true);
     if (!orderResult.ok) return;
     await db.update(orders).set({ paymentProvider: "balance" }).where(eq(orders.id, String(orderResult.order.id)));
@@ -811,11 +811,11 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     await seedCard(db, { id: "quantity-card-1", productId: "quantity-card", accountLabel: "QTY-1", secret: "SEC-1" });
     await seedCard(db, { id: "quantity-card-2", productId: "quantity-card", accountLabel: "QTY-2", secret: "SEC-2" });
 
-    const orderResult = await createOrder(createContext(db), {
+    const orderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "quantity-card",
       buyerEmail: "quantity@example.com",
       quantity: 2,
-    }, "ip-hash");
+    }), "ip-hash");
     expect(orderResult.ok).toBe(true);
     if (!orderResult.ok) return;
 
@@ -854,10 +854,10 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
       salesCopy: "https://example.test/private.pdf",
     });
 
-    const orderResult = await createOrder(createContext(db), {
+    const orderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "paid-link",
       buyerEmail: "link@example.com",
-    }, "ip-hash");
+    }), "ip-hash");
     expect(orderResult.ok).toBe(true);
     if (!orderResult.ok) return;
 
@@ -889,13 +889,13 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
       purchaseLimit: null,
     });
 
-    const first = await createOrder(createContext(db), await withFreeEmailCode({
+    const first = await createOrder(createContext(db), await withEmailCode({
       productId: "qq-free-code",
       buyerEmail: "first@qq.example",
       buyerContact: "QQ群公告用户A",
       campaignCode: "qq-group",
     }), "ip-hash-a");
-    const second = await createOrder(createContext(db), await withFreeEmailCode({
+    const second = await createOrder(createContext(db), await withEmailCode({
       productId: "qq-free-code",
       buyerEmail: "second@qq.example",
       buyerContact: "QQ群公告用户B",
@@ -997,7 +997,7 @@ describe("核心业务场景集成测试（真实 libSQL + 真实服务层）", 
     });
     await seedCard(db, { id: "issued-expiry-card", productId: "issued-expiry", secret: "NO-RECYCLE" });
 
-    const orderResult = await createOrder(createContext(db), await withFreeEmailCode({
+    const orderResult = await createOrder(createContext(db), await withEmailCode({
       productId: "issued-expiry",
       buyerEmail: "issued@example.com",
     }), "ip-hash");

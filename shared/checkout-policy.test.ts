@@ -4,6 +4,7 @@ import {
   FREE_PRODUCT_QUANTITY,
   effectivePurchaseLimitForProduct,
   getFreeProductCheckoutViolation,
+  hasValidEmailAccessCode,
   isBasePriceFree,
   normalizeCheckoutIntent,
 } from "./checkout-policy";
@@ -41,18 +42,19 @@ describe("checkout policy", () => {
     }).emailAccessCode).toBe("");
   });
 
-  it("不改变付费商品的支付选择和优惠码语义", () => {
+  it("付费商品在线支付也保留邮箱验证码", () => {
     expect(normalizeCheckoutIntent(1200, {
       quantity: 2,
       couponCode: " FREE100 ",
       balancePayment: false,
       paymentChannel: "wxpay",
+      emailAccessCode: " 111222 ",
     })).toEqual({
       quantity: 2,
       couponCode: "FREE100",
       balancePayment: false,
       paymentChannel: "wxpay",
-      emailAccessCode: "",
+      emailAccessCode: "111222",
     });
   });
 
@@ -61,19 +63,28 @@ describe("checkout policy", () => {
     [{ quantity: 1, couponCode: "FREE100" }, "coupon"],
     [{ quantity: 1, balancePayment: true }, "payment_method"],
     [{ quantity: 1, paymentChannel: "alipay" as const }, "payment_method"],
-    [{ quantity: 1 }, "email_verification"],
-    [{ quantity: 1, emailAccessCode: "12" }, "email_verification"],
-    [{ quantity: 1, emailAccessCode: "abcdef" }, "email_verification"],
   ] as const)("拒绝绕过免费领取约束的请求 %#", (input, violation) => {
     expect(getFreeProductCheckoutViolation(0, input)).toBe(violation);
     expect(getFreeProductCheckoutViolation(100, input)).toBeNull();
   });
 
-  it("合法 6 位验证码的免费请求通过约束校验", () => {
+  it("免费商品专用约束不再重复校验验证码格式", () => {
+    expect(getFreeProductCheckoutViolation(0, {
+      quantity: 1,
+    })).toBeNull();
     expect(getFreeProductCheckoutViolation(0, {
       quantity: 1,
       emailAccessCode: "123456",
     })).toBeNull();
+  });
+
+  it("hasValidEmailAccessCode 只接受 6 位数字", () => {
+    expect(hasValidEmailAccessCode("123456")).toBe(true);
+    expect(hasValidEmailAccessCode(" 654321 ")).toBe(true);
+    expect(hasValidEmailAccessCode("12")).toBe(false);
+    expect(hasValidEmailAccessCode("abcdef")).toBe(false);
+    expect(hasValidEmailAccessCode("")).toBe(false);
+    expect(hasValidEmailAccessCode(undefined)).toBe(false);
   });
 
   it("免费商品未配置限购时默认 1 件；付费商品空限购仍不限", () => {
@@ -99,7 +110,7 @@ describe("checkout policy", () => {
     })).toBe("payment_method");
   });
 
-  it("付费余额路径规范化才携带验证码；在线支付清空验证码", () => {
+  it("付费余额路径规范化携带验证码且清空支付渠道", () => {
     expect(normalizeCheckoutIntent(100, {
       quantity: 1,
       balancePayment: true,
@@ -112,11 +123,5 @@ describe("checkout policy", () => {
       paymentChannel: "",
       emailAccessCode: "111222",
     });
-    expect(normalizeCheckoutIntent(100, {
-      quantity: 1,
-      balancePayment: false,
-      paymentChannel: "alipay",
-      emailAccessCode: "111222",
-    }).emailAccessCode).toBe("");
   });
 });

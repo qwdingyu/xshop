@@ -15,18 +15,21 @@ describe('free product checkout UI contract', () => {
     expect(payModalSource).toContain('const showOnlinePaymentSection = computed(() => !isBasePriceFreeProduct.value')
   })
 
-  it('requires email verification UI and submits access code for free claims', () => {
-    expect(payModalSource).toContain('v-if="isBasePriceFreeProduct" class="field-block free-claim-auth"')
+  it('requires email verification UI for all checkout and submits access code', () => {
+    // 全商品统一邮箱验证码区块（不再仅限免费）
+    expect(payModalSource).toContain('class="field-block checkout-email-auth"')
     expect(payModalSource).toContain('placeholder="邮箱验证码（必填）"')
-    expect(payModalSource).toContain('免费领取需验证邮箱归属')
-    expect(payModalSource).toContain("if ((useBalance || isBasePriceFreeProduct.value) && !/^\\d{6}$/.test(intent.emailAccessCode))")
+    expect(payModalSource).toContain('下单需验证邮箱归属')
+    expect(payModalSource).toContain("if (!/^\\d{6}$/.test(intent.emailAccessCode))")
     expect(payModalSource).toContain('emailAccessCode: intent.emailAccessCode || undefined')
     expect(payModalSource).toContain('balancePayment: isBasePriceFreeProduct.value ? undefined : useBalance')
     expect(payModalSource).toContain('paymentChannel: isBasePriceFreeProduct.value ? undefined : (intent.paymentChannel || undefined)')
     expect(payModalSource).toContain("isFreeProduct: isBasePriceFreeProduct.value")
-    // 免费路径复用既有发码函数，而不是另起一套
+    // 发码带 productId，供后端限购预检
     expect(payModalSource).toContain('async function sendEmailCode()')
     expect(payModalSource).toContain('requestEmailAccessCode(email.value.trim()')
+    expect(payModalSource).toContain('productId: product.value.id')
+    expect(payModalSource).toContain('storefrontId: product.value.storefrontId')
   })
 
   it('does not load payment capabilities for base-free products', () => {
@@ -34,12 +37,12 @@ describe('free product checkout UI contract', () => {
     expect(payModalSource).toContain('// 免费商品不依赖系统支付开关，也不应产生 /api/pay/methods 请求。')
   })
 
-  it('keeps free-claim auth outside the balance-payment section so it is visible without selecting balance', () => {
-    const freeAuthIdx = payModalSource.indexOf('class="field-block free-claim-auth"')
+  it('keeps checkout email auth outside the balance-payment section so it is always visible', () => {
+    const emailAuthIdx = payModalSource.indexOf('class="field-block checkout-email-auth"')
     const balanceSectionIdx = payModalSource.indexOf('v-if="balancePayAvailable"')
-    expect(freeAuthIdx).toBeGreaterThan(0)
+    expect(emailAuthIdx).toBeGreaterThan(0)
     expect(balanceSectionIdx).toBeGreaterThan(0)
-    expect(freeAuthIdx).toBeLessThan(balanceSectionIdx)
+    expect(emailAuthIdx).toBeLessThan(balanceSectionIdx)
   })
 
   it('shows a semantic free price instead of a zero currency amount', () => {

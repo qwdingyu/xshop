@@ -214,6 +214,12 @@ vi.mock("../lib/email-access", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/email-access")>();
   return {
     ...actual,
+    // 测试环境：未传 ADMIN_TOKEN 时给默认 secret，避免全量用例逐个补 bindings；
+    // 仍走真实逻辑拒绝生产域名上的 dev-only-change-me。
+    getEmailAccessSecret: (adminToken?: string, requestUrl?: string) => {
+      const token = adminToken?.trim() || "test-admin-token";
+      return actual.getEmailAccessSecret(token, requestUrl || "https://shop.example.com/api/pay/unified");
+    },
     verifyEmailAccessCode: (...args: unknown[]) => emailAccessMocks.verifyEmailAccessCode(...args),
   };
 });
@@ -1121,6 +1127,8 @@ describe("POST /pay/unified", () => {
       storefrontId: "sf_default",
       productId: "prod-1",
       buyerEmail: "buyer@example.com",
+      // 全商品结账强制邮箱验证码；单测默认有效码，验码由 mock 控制。
+      emailAccessCode: "123456",
       ...extra,
     };
   }
@@ -1666,11 +1674,13 @@ describe("POST /pay/unified", () => {
     },
     {
       name: "缺少邮箱验证码",
-      payload: {},
+      payload: { emailAccessCode: "" },
       code: "EMAIL_VERIFICATION_REQUIRED",
       status: 403,
+      // 缺码在幂等租约之前拒绝，不会占用/清理 pending
+      clearsPending: false,
     },
-  ])("rejects base-free product requests that bypass the simplified checkout: $name", async ({ payload, code, status }) => {
+  ])("rejects base-free product requests that bypass the simplified checkout: $name", async ({ payload, code, status, clearsPending = true }) => {
     const { app, idempotencyState } = createUnifiedPayApp({ product: { priceCents: 0 } });
     const { readRuntimeConfig } = await import("../lib/runtime-config");
     vi.mocked(readRuntimeConfig).mockResolvedValueOnce(mockRuntimeConfig({
@@ -1688,7 +1698,9 @@ describe("POST /pay/unified", () => {
     expect(res.status).toBe(status);
     expect(body.ok).toBe(false);
     expect(body.details?.code).toBe(code);
-    expect(idempotencyState.clearedPending).toBe(true);
+    if (clearsPending) {
+      expect(idempotencyState.clearedPending).toBe(true);
+    }
     expect(couponServiceMocks.quoteCoupon).not.toHaveBeenCalled();
     expect(couponServiceMocks.consumeCoupon).not.toHaveBeenCalled();
     expect(paymentProviderMocks.selectOnline).not.toHaveBeenCalled();
@@ -1715,9 +1727,9 @@ describe("POST /pay/unified", () => {
     expect(res.status).toBe(403);
     expect(body.ok).toBe(false);
     expect(body.details?.code).toBe("EMAIL_VERIFICATION_REQUIRED");
-    expect(idempotencyState.clearedPending).toBe(true);
+    // 验码在幂等租约前失败：不占 pending，也不得消耗 free_claim
+    expect(idempotencyState.clearedPending).toBe(false);
     expect(emailAccessMocks.verifyEmailAccessCode).toHaveBeenCalled();
-    // 验码失败不得消耗 free_claim 成功配额
     expect(enforceRateLimit).not.toHaveBeenCalledWith(
       expect.anything(),
       "free_claim",
@@ -1741,7 +1753,8 @@ describe("POST /pay/unified", () => {
     expect(body.ok).toBe(false);
     expect(body.details?.code).toBe("EMAIL_REQUIRED_FOR_FREE_CLAIM");
     expect(idempotencyState.clearedPending).toBe(true);
-    expect(emailAccessMocks.verifyEmailAccessCode).not.toHaveBeenCalled();
+    // 邮箱验证在读商品前完成；Resend 缺失在免费商品分支拦截。
+    expect(emailAccessMocks.verifyEmailAccessCode).toHaveBeenCalled();
   });
 
   async function enableFreeClaimMail() {
@@ -1841,7 +1854,8 @@ describe("POST /pay/unified", () => {
     expect(res.status).toBe(503);
     expect(body.ok).toBe(false);
     expect(body.details?.code).toBe("EMAIL_ACCESS_UNAVAILABLE");
-    expect(idempotencyState.clearedPending).toBe(true);
+    // secret 在幂等租约前拒绝，不占用 pending
+    expect(idempotencyState.clearedPending).toBe(false);
     expect(emailAccessMocks.verifyEmailAccessCode).not.toHaveBeenCalled();
     expect(fulfillmentServiceMocks.lockFulfillmentInventoryItems).not.toHaveBeenCalled();
   });
@@ -1979,10 +1993,27 @@ describe("POST /pay/unified", () => {
     }, { ADMIN_TOKEN: "admin-secret" });
 
     expect(res.status).toBe(200);
-    expect(emailAccessMocks.verifyEmailAccessCode).not.toHaveBeenCalled();
+    // 付费在线支付同样需要邮箱验证码，但不走 free_claim 频控。
+    expect(emailAccessMocks.verifyEmailAccessCode).toHaveBeenCalled();
     expect(orderServiceMocks.checkFreeClaimOrderRateLimit).not.toHaveBeenCalled();
     expect(orderServiceMocks.checkOrderRateLimit).toHaveBeenCalled();
     expect(enforceRateLimit).not.toHaveBeenCalledWith(expect.anything(), "free_claim", 3);
+  });
+
+  it("rejects paid online checkout without email access code", async () => {
+    const { app } = createUnifiedPayApp({ product: { priceCents: 1200 } });
+
+    const res = await app.request("https://shop.example.com/api/pay/unified", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": STRONG_IDEMPOTENCY_KEY },
+      body: JSON.stringify(unifiedPayPayload({ paymentChannel: "alipay", emailAccessCode: "" })),
+    }, { ADMIN_TOKEN: "admin-secret" });
+    const body = await res.json() as { ok: boolean; details?: { code?: string } };
+
+    expect(res.status).toBe(403);
+    expect(body.details?.code).toBe("EMAIL_VERIFICATION_REQUIRED");
+    expect(emailAccessMocks.verifyEmailAccessCode).not.toHaveBeenCalled();
+    expect(paymentProviderMocks.createPayment).not.toHaveBeenCalled();
   });
 
   it("forces authorized admin smoke orders through the deterministic offline branch", async () => {

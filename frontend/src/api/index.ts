@@ -113,14 +113,29 @@ export function lookupOrdersByEmail(email: string, emailAccessCode: string): Pro
   })))
 }
 
-export function requestEmailAccessCode(email: string, turnstileToken?: string): Promise<{
+export function requestEmailAccessCode(
+  email: string,
+  turnstileToken?: string,
+  options?: {
+    /** 收银台发码时传入，用于发信前限购预检，避免已达上限仍滥发邮件 */
+    productId?: string
+    storefrontId?: string
+    quantity?: number
+  },
+): Promise<{
   sent: boolean
   expiresInSeconds: number
   resendCooldownSeconds?: number
 }> {
   return request('/api/email/access-code', {
     method: 'POST',
-    body: JSON.stringify({ email, turnstileToken }),
+    body: JSON.stringify({
+      email,
+      turnstileToken,
+      productId: options?.productId,
+      storefrontId: options?.storefrontId,
+      quantity: options?.quantity,
+    }),
   })
 }
 

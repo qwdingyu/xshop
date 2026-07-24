@@ -1,16 +1,29 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../bindings";
+import { effectivePurchaseLimitForProduct } from "../../shared/checkout-policy";
 import { createEmailAccessCode, emailAccessSubject, getEmailAccessSecret } from "../lib/email-access";
 import { fail, getDb, ok, safeJsonBody } from "../lib/http";
 import { enforceRateLimit, releaseCooldown, reserveCooldown, writeRequestLog } from "../lib/rate-limit";
 import { mergeRuntimeConfig, readRuntimeConfig } from "../lib/runtime-config";
 import { verifyTurnstile } from "../lib/security";
 import { sendEmail } from "../services/email-service";
+import {
+  checkProductPurchaseLimitForQuantity,
+} from "../services/order-service";
+import { getProduct } from "../services/product-service";
 
 const EmailAccessSchema = z.object({
   email: z.string().trim().email().max(160),
   turnstileToken: z.string().trim().optional().or(z.literal("")),
+  /**
+   * 收银台发码可带商品与数量：在真正发信前按限购预检，
+   * 已达上限则直接拒绝，避免限购用户反复刷验证码邮件。
+   * 查单/充值等非结账场景可不传 productId。
+   */
+  productId: z.string().trim().min(1).max(120).optional().or(z.literal("")),
+  storefrontId: z.string().trim().min(1).max(120).optional().or(z.literal("")),
+  quantity: z.coerce.number().int().min(1).max(99).optional(),
 });
 
 export const emailAccessRoute = new Hono<AppEnv>();
@@ -46,6 +59,32 @@ emailAccessRoute.post("/email/access-code", async (c) => {
   // 投递仍用用户填写的小写邮箱；冷却与 HMAC 主体用 canonical，防止 +tag / Gmail 点号刷码。
   const deliveryEmail = body.data.email.trim().toLowerCase();
   const subjectEmail = emailAccessSubject(deliveryEmail);
+  const productId = (body.data.productId || "").trim();
+  const storefrontId = (body.data.storefrontId || "").trim();
+  const quantity = body.data.quantity ?? 1;
+
+  // 结账场景：发信前做限购预检，已达上限则不发邮件、不占发码冷却。
+  if (productId) {
+    const product = await getProduct(db, productId, storefrontId || undefined);
+    if (!product) {
+      await writeRequestLog(c, "email_access_code", 404, limit.ipHash);
+      return fail(c, "商品不存在或已下架", 404, { code: "PRODUCT_NOT_FOUND" });
+    }
+    const purchaseLimit = await checkProductPurchaseLimitForQuantity(
+      db,
+      deliveryEmail,
+      product.id,
+      effectivePurchaseLimitForProduct(product.priceCents, product.purchaseLimit),
+      quantity,
+    );
+    if (!purchaseLimit.ok) {
+      await writeRequestLog(c, "email_access_code_purchase_limit", purchaseLimit.status, limit.ipHash);
+      return fail(c, purchaseLimit.message, purchaseLimit.status, {
+        code: "PURCHASE_LIMIT_REACHED",
+      });
+    }
+  }
+
   const cooldown = await reserveCooldown(
     c,
     "email_access_code_recipient",

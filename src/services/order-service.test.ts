@@ -168,8 +168,8 @@ function createMockContext(db: DbType, overrides: Record<string, unknown> = {}):
   } as unknown as Context<AppEnv>;
 }
 
-/** 生成可过 verifyEmailAccessCode 的免费领取输入（ADMIN_TOKEN=test-token） */
-async function withFreeEmailCode(
+/** 生成可过 verifyEmailAccessCode 的结账输入（ADMIN_TOKEN=test-token） */
+async function withEmailCode(
   input: CreateOrderInput,
   adminToken = "test-token",
 ): Promise<CreateOrderInput> {
@@ -636,7 +636,7 @@ describe("createOrder", () => {
     const db = createMockDb();
     const c = createMockContext(db);
     const input: CreateOrderInput = { buyerEmail: "test@example.com", couponCode: "DOESNOTEXIST" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(400);
@@ -649,7 +649,7 @@ describe("createOrder", () => {
     const db = createMockDb();
     const c = createMockContext(db);
     const input: CreateOrderInput = { buyerEmail: "test@example.com", couponCode: "NOPRODUCT" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(400);
@@ -662,7 +662,7 @@ describe("createOrder", () => {
     const db = createMockDb();
     const c = createMockContext(db);
     const input: CreateOrderInput = { buyerEmail: "test@example.com" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(400);
@@ -701,7 +701,7 @@ describe("createOrder", () => {
     });
     const c = createMockContext(db);
     const input: CreateOrderInput = { buyerEmail: "coupon@example.com", couponCode: "COUPON10" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.order.status).toBe("pending");
@@ -713,7 +713,7 @@ describe("createOrder", () => {
     const db = createMockDb();
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "nonexistent", buyerEmail: "test@example.com" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(404);
@@ -733,7 +733,7 @@ describe("createOrder", () => {
     const db = createMockDb();
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-no-mode", buyerEmail: "test@example.com" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(400);
@@ -760,7 +760,7 @@ describe("createOrder", () => {
     const db = createMockDb();
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-1", buyerEmail: "test@example.com", couponCode: "BAD" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(403);
@@ -780,7 +780,7 @@ describe("createOrder", () => {
     const db = createMockDb({ cards: {} });
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-manual", buyerEmail: "test@example.com" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(409);
@@ -811,7 +811,7 @@ describe("createOrder", () => {
     });
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-manual", buyerEmail: "buyer@example.com", buyerContact: "  test contact  " };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.order.id).toBeDefined();
@@ -859,11 +859,11 @@ describe("createOrder", () => {
       },
     });
     const c = createMockContext(db);
-    const result = await createOrder(c, {
+    const result = await createOrder(c, await withEmailCode({
       productId: "prod-promo",
       buyerEmail: "promo@example.com",
       quantity: 1,
-    }, "iphash123");
+    }), "iphash123");
 
     expect(result.ok).toBe(true);
     expect(mockQuoteCoupon).toHaveBeenCalledWith(
@@ -890,7 +890,7 @@ describe("createOrder", () => {
     const db = createMockDb({ cards: {} });
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-direct", buyerEmail: "test@example.com" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(400);
@@ -920,7 +920,7 @@ describe("createOrder", () => {
     });
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-direct", buyerEmail: "direct@example.com" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(400);
@@ -961,7 +961,7 @@ describe("createOrder", () => {
       buyerEmail: "direct@example.com",
       couponCode: "FREE100",
     };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.order.status).toBe("issued");
@@ -1003,7 +1003,7 @@ describe("createOrder", () => {
       buyerEmail: "direct@example.com",
       couponCode: "EXPIRED",
     };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(409);
@@ -1023,7 +1023,7 @@ describe("createOrder", () => {
     const db = createMockDb();
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-webhook", buyerEmail: "webhook@example.com" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(400);
@@ -1046,7 +1046,7 @@ describe("createOrder", () => {
     });
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-manual", buyerEmail: "rush@example.com" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(429);
@@ -1080,7 +1080,7 @@ describe("createOrder", () => {
     });
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-manual", buyerEmail: "ok@example.com" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.order.status).toBe("pending");
@@ -1103,7 +1103,7 @@ describe("createOrder", () => {
     });
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-manual", buyerEmail: "rush@example.com" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(429);
@@ -1127,7 +1127,7 @@ describe("createOrder", () => {
     });
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-limited", buyerEmail: "buyer@example.com", quantity: 2 };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(429);
@@ -1162,7 +1162,7 @@ describe("createOrder", () => {
     });
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-limited", buyerEmail: "buyer@example.com" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.order.status).toBe("pending");
@@ -1196,7 +1196,7 @@ describe("createOrder", () => {
     });
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-unlimited", buyerEmail: "buyer@example.com" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.order.status).toBe("pending");
@@ -1229,7 +1229,7 @@ describe("createOrder", () => {
     });
     const result = await createOrder(
       createMockContext(db),
-      await withFreeEmailCode({
+      await withEmailCode({
         productId: "prod-free-default-limit",
         buyerEmail: "free@example.com",
       }),
@@ -1259,6 +1259,7 @@ describe("createOrder", () => {
       payableCents: 0,
       message: "免单",
     });
+    // 故意不带验证码：全商品门禁应拒绝
     const result = await createOrder(createMockContext(createMockDb({})), {
       productId: "prod-free-otp",
       buyerEmail: "otp@example.com",
@@ -1266,7 +1267,7 @@ describe("createOrder", () => {
     expect(result).toEqual({
       ok: false,
       status: 403,
-      message: "免费领取请先完成邮箱验证码校验",
+      message: "请先完成邮箱验证码校验",
     });
   });
 
@@ -1318,7 +1319,7 @@ describe("createOrder", () => {
     });
     const result = await createOrder(
       createMockContext(createMockDb({}), { env: { RESEND_API_KEY: "" } }),
-      await withFreeEmailCode({
+      await withEmailCode({
         productId: "prod-free-no-mail",
         buyerEmail: "nomail@example.com",
       }),
@@ -1365,12 +1366,12 @@ describe("createOrder", () => {
       from: (_table?: unknown) => createSelectChain([{ count: orderReads++ === 0 ? 0 : 1 }]),
     });
     const c = createMockContext(db);
-    const input = await withFreeEmailCode({
+    const input = await withEmailCode({
       productId: "prod-direct",
       buyerEmail: "direct@example.com",
       couponCode: "FREE",
     });
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result).toEqual({ ok: false, status: 429, message: "该商品每人限购 1 件，您已达到上限" });
   });
 
@@ -1413,7 +1414,7 @@ describe("createOrder", () => {
 
     const result = await createOrder(
       createMockContext(db),
-      await withFreeEmailCode({
+      await withEmailCode({
         productId: "prod-direct-race",
         buyerEmail: "direct-race@example.com",
       }),
@@ -1448,8 +1449,8 @@ describe("createOrder", () => {
       from: (_table?: unknown) => createSelectChain([{ count: 0 }]),
     });
     const c = createMockContext(db);
-    const input = await withFreeEmailCode({ productId: "prod-virtual", buyerEmail: "virtual@example.com" });
-    const result = await createOrder(c, input, "iphash123");
+    const input = await withEmailCode({ productId: "prod-virtual", buyerEmail: "virtual@example.com" });
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.order.status).toBe("issued");
@@ -1478,11 +1479,11 @@ describe("createOrder", () => {
       message: "折扣码可用",
     });
 
-    const result = await createOrder(createMockContext(createMockDb({})), {
+    const result = await createOrder(createMockContext(createMockDb({})), await withEmailCode({
       productId: "prod-virtual-coupon",
       buyerEmail: "virtual-coupon@example.com",
       couponCode: "FREE-VIRTUAL",
-    }, "iphash-virtual-coupon");
+    }), "iphash-virtual-coupon");
 
     expect(result.ok).toBe(true);
     expect(mockConsumeCoupon).toHaveBeenCalledWith(expect.anything(), "free-virtual");
@@ -1513,7 +1514,7 @@ describe("createOrder", () => {
     const result = await createOrder(createMockContext(db, {
       env: { RESEND_API_KEY: "resend-key" },
       executionCtx: { waitUntil: vi.fn() },
-    }), await withFreeEmailCode({
+    }), await withEmailCode({
       productId: "prod-virtual-email-only",
       buyerEmail: "virtual-email@example.com",
     }), "iphash-email-only");
@@ -1560,7 +1561,7 @@ describe("createOrder", () => {
     const result = await createOrder(createMockContext(db, {
       env: { RESEND_API_KEY: "resend-key" },
       executionCtx: { waitUntil: vi.fn() },
-    }), await withFreeEmailCode({
+    }), await withEmailCode({
       productId: "prod-card-email-only",
       buyerEmail: "card-email@example.com",
     }), "iphash-card-email-only");
@@ -1587,7 +1588,7 @@ describe("createOrder", () => {
     const db = createMockDb({});
     const c = createMockContext(db);
     const input: CreateOrderInput = { productId: "prod-virtual-manual", buyerEmail: "vm@example.com" };
-    const result = await createOrder(c, input, "iphash123");
+    const result = await createOrder(c, await withEmailCode(input), "iphash123");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.order.status).toBe("pending");

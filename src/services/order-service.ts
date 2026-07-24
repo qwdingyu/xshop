@@ -137,8 +137,7 @@ export type CreateOrderInput = {
   campaignCode?: string;
   referralCode?: string;
   /**
-   * 基础价为 0 的免费商品必须携带 6 位邮箱验证码（与 /pay/unified 一致）。
-   * 付费商品用优惠码抵扣至 0 不要求此字段。
+   * 所有商品下单必须携带 6 位邮箱验证码（与 /pay/unified 一致）。
    */
   emailAccessCode?: string;
 };
@@ -649,10 +648,10 @@ export async function createOrder(c: Context<AppEnv>, input: CreateOrderInput, i
 
   // ── 单邮箱限购：直发和待支付路径都必须遵守商品总限购 ──
   const normalizedBuyerEmail = (input.buyerEmail || "").trim().toLowerCase();
-  // 基础价免费：内部 createOrder 与生产 /pay/unified 对齐——强制邮箱归属 + 免费领取邮箱频控。
-  // 优惠码把付费商品抵扣到 0 不算「免费商品」，仍走折扣核销路径，不强制 OTP。
-  if (isBasePriceFree(product.priceCents)) {
-    if (!emailEnv.resendApiKey) {
+  // 全商品 createOrder 与 /pay/unified 对齐：强制邮箱验证码（归属校验）。
+  // 基础价免费另走免费领取频控；优惠码把付费抵扣到 0 仍算付费商品路径。
+  {
+    if (isBasePriceFree(product.priceCents) && !emailEnv.resendApiKey) {
       return {
         ok: false as const,
         status: 503,
@@ -672,7 +671,7 @@ export async function createOrder(c: Context<AppEnv>, input: CreateOrderInput, i
       return {
         ok: false as const,
         status: 403,
-        message: "免费领取请先完成邮箱验证码校验",
+        message: "请先完成邮箱验证码校验",
       };
     }
     const mailboxVerified = await verifyEmailAccessCode(

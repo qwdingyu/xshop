@@ -11,6 +11,9 @@ export const FREE_PRODUCT_QUANTITY = 1;
 /** 免费领取默认每邮箱限购件数（运营侧与后端兜底一致） */
 export const FREE_PRODUCT_DEFAULT_PURCHASE_LIMIT = 1;
 
+/** 结账统一要求的 6 位邮箱验证码格式 */
+export const EMAIL_ACCESS_CODE_PATTERN = /^\d{6}$/;
+
 export type CheckoutPaymentChannel = "alipay" | "wxpay" | "qqpay";
 
 export interface CheckoutIntentInput {
@@ -31,16 +34,18 @@ export interface CheckoutIntent {
 
 /**
  * 前端提交和待恢复请求共用同一套规范化规则。
- * 免费商品固定单次领取 1 件，清空支付/优惠凭据，但保留邮箱验证码（归属校验必需）。
+ * 免费商品固定单次领取 1 件，清空支付/优惠凭据。
+ * 所有商品均保留邮箱验证码（归属校验必需）。
  */
 export function normalizeCheckoutIntent(basePriceMinor: number, input: CheckoutIntentInput): CheckoutIntent {
+  const emailAccessCode = input.emailAccessCode?.trim() || "";
   if (isBasePriceFree(basePriceMinor)) {
     return {
       quantity: FREE_PRODUCT_QUANTITY,
       couponCode: "",
       balancePayment: false,
       paymentChannel: "",
-      emailAccessCode: input.emailAccessCode?.trim() || "",
+      emailAccessCode,
     };
   }
   return {
@@ -48,21 +53,20 @@ export function normalizeCheckoutIntent(basePriceMinor: number, input: CheckoutI
     couponCode: input.couponCode?.trim() || "",
     balancePayment: input.balancePayment === true,
     paymentChannel: input.balancePayment ? "" : (input.paymentChannel || ""),
-    emailAccessCode: input.balancePayment ? (input.emailAccessCode?.trim() || "") : "",
+    emailAccessCode,
   };
 }
 
 export type FreeProductCheckoutViolation =
   | "quantity"
   | "coupon"
-  | "payment_method"
-  | "email_verification";
+  | "payment_method";
 
 /**
  * 后端使用该函数校验客户端是否绕过免费领取界面直接构造请求。
  * 返回 null 表示请求符合免费商品约束；非免费商品不受这组专用规则影响。
  *
- * 免费领取必须携带 6 位邮箱验证码；支付方式/优惠码/多数量仍禁止。
+ * 邮箱验证码由全商品门禁单独校验，不在此重复判定。
  */
 export function getFreeProductCheckoutViolation(
   basePriceMinor: number,
@@ -72,9 +76,12 @@ export function getFreeProductCheckoutViolation(
   if (input.quantity !== FREE_PRODUCT_QUANTITY) return "quantity";
   if (input.couponCode?.trim()) return "coupon";
   if (input.balancePayment || input.paymentChannel) return "payment_method";
-  const code = input.emailAccessCode?.trim() || "";
-  if (!/^\d{6}$/.test(code)) return "email_verification";
   return null;
+}
+
+/** 结账是否已携带合法 6 位邮箱验证码（前后端共用）。 */
+export function hasValidEmailAccessCode(code: string | undefined | null): boolean {
+  return EMAIL_ACCESS_CODE_PATTERN.test((code || "").trim());
 }
 
 /**

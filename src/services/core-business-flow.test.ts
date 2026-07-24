@@ -250,7 +250,7 @@ function createMockDb(state: MockDbState = {}): DbType {
   } as unknown as DbType;
 }
 
-async function freeOrderInput(
+async function checkoutEmailInput(
   productId: string,
   buyerEmail: string,
   extra: Record<string, unknown> = {},
@@ -379,7 +379,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
       });
 
       const c = createMockContext(db);
-      const orderResult = await createOrder(c, { productId, buyerEmail, couponCode: "FREE100" }, "ip-hash-1");
+      const orderResult = await createOrder(c, await checkoutEmailInput(productId, buyerEmail, { couponCode: "FREE100" }), "ip-hash-1");
 
       expect(orderResult.ok).toBe(true);
       if (!orderResult.ok) return;
@@ -452,7 +452,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
       });
 
       const c = createMockContext(db);
-      const orderResult = await createOrder(c, { productId, buyerEmail }, "ip-hash-2");
+      const orderResult = await createOrder(c, await checkoutEmailInput(productId, buyerEmail), "ip-hash-2");
 
       expect(orderResult.ok).toBe(true);
       if (!orderResult.ok) return;
@@ -552,7 +552,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
       });
 
       const c = createMockContext(db);
-      const orderResult = await createOrder(c, { productId, buyerEmail, couponCode }, "ip-hash-3");
+      const orderResult = await createOrder(c, await checkoutEmailInput(productId, buyerEmail, { couponCode }), "ip-hash-3");
 
       expect(orderResult.ok).toBe(true);
       if (!orderResult.ok) return;
@@ -700,7 +700,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
 
       // Step 2: Create order (pending)
       const c = createMockContext(db);
-      const orderResult = await createOrder(c, { productId, buyerEmail }, "ip-hash-balance");
+      const orderResult = await createOrder(c, await checkoutEmailInput(productId, buyerEmail), "ip-hash-balance");
       expect(orderResult.ok).toBe(true);
       if (!orderResult.ok) return;
       expect(orderResult.order.status).toBe("pending");
@@ -772,7 +772,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
       });
 
       const c = createMockContext(db);
-      const orderResult = await createOrder(c, await freeOrderInput(productId, buyerEmail), "ip-hash-6");
+      const orderResult = await createOrder(c, await checkoutEmailInput(productId, buyerEmail), "ip-hash-6");
 
       expect(orderResult.ok).toBe(true);
       if (!orderResult.ok) return;
@@ -857,7 +857,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
       });
 
       const c = createMockContext(db);
-      const orderResult = await createOrder(c, { productId, buyerEmail }, "ip-hash-6b");
+      const orderResult = await createOrder(c, await checkoutEmailInput(productId, buyerEmail), "ip-hash-6b");
 
       expect(orderResult.ok).toBe(true);
       if (!orderResult.ok) return;
@@ -1081,7 +1081,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
 
       // Step 3: User places manual order (should be pending)
       const c = createMockContext(db);
-      const orderResult = await createOrder(c, { productId, buyerEmail }, "ip-hash-admin");
+      const orderResult = await createOrder(c, await checkoutEmailInput(productId, buyerEmail), "ip-hash-admin");
       expect(orderResult.ok).toBe(true);
       if (!orderResult.ok) return;
       expect(orderResult.order.status).toBe("pending");
@@ -1251,7 +1251,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
 
       // First order should succeed
       const c1 = createMockContext(db);
-      const result1 = await createOrder(c1, { productId, buyerEmail: "buyer5a@example.com", couponCode: "FREE100" }, "ip-hash-5a");
+      const result1 = await createOrder(c1, await checkoutEmailInput(productId, "buyer5a@example.com", { couponCode: "FREE100" }), "ip-hash-5a");
       expect(result1.ok).toBe(true);
       if (!result1.ok) return;
       expect(result1.order.status).toBe("issued");
@@ -1262,7 +1262,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
 
       // Second order should fail with 409
       const c2 = createMockContext(db);
-      const result2 = await createOrder(c2, { productId, buyerEmail: "buyer5b@example.com", couponCode: "FREE100" }, "ip-hash-5b");
+      const result2 = await createOrder(c2, await checkoutEmailInput(productId, "buyer5b@example.com", { couponCode: "FREE100" }), "ip-hash-5b");
       expect(result2.ok).toBe(false);
       if (result2.ok) return;
       expect(result2.status).toBe(409);
@@ -1331,7 +1331,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
       });
 
       const c = createMockContext(db);
-      const result = await createOrder(c, { productId, buyerEmail }, "ip-hash-10");
+      const result = await createOrder(c, await checkoutEmailInput(productId, buyerEmail), "ip-hash-10");
 
       expect(result.ok).toBe(false);
       if (result.ok) return;
@@ -1402,7 +1402,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
 
       // Step 1: Place order (should trigger order_issued email)
       const c = createMockContext(db, { env: { RESEND_API_KEY: "re_test" } });
-      const orderResult = await createOrder(c, { productId, buyerEmail, couponCode: "FREE100" }, "ip-hash-9");
+      const orderResult = await createOrder(c, await checkoutEmailInput(productId, buyerEmail, { couponCode: "FREE100" }), "ip-hash-9");
 
       expect(orderResult.ok).toBe(true);
       if (!orderResult.ok) return;
@@ -1504,7 +1504,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
 
       // Step 1: User places manual order (should be pending, card locked)
       const c = createMockContext(db);
-      const orderResult = await createOrder(c, { productId, buyerEmail }, "ip-hash-cancel");
+      const orderResult = await createOrder(c, await checkoutEmailInput(productId, buyerEmail), "ip-hash-cancel");
       expect(orderResult.ok).toBe(true);
       if (!orderResult.ok) return;
       expect(orderResult.order.status).toBe("pending");
@@ -1607,7 +1607,7 @@ describe("核心业务流测试（跨服务端到端）", () => {
 
       // Step 1: Place order and issue card
       const c = createMockContext(db);
-      const orderResult = await createOrder(c, { productId, buyerEmail, couponCode: "FREE100" }, "ip-hash-expire");
+      const orderResult = await createOrder(c, await checkoutEmailInput(productId, buyerEmail, { couponCode: "FREE100" }), "ip-hash-expire");
       expect(orderResult.ok).toBe(true);
       if (!orderResult.ok) return;
       expect(orderResult.order.status).toBe("issued");
@@ -1723,7 +1723,10 @@ describe("核心业务流测试（跨服务端到端）", () => {
       const c = createMockContext(db);
       const orderResult = await createOrder(
         c,
-        { productId, buyerEmail, referralCode: "REF-CODE-123", couponCode: "FREE100" },
+        await checkoutEmailInput(productId, buyerEmail, {
+          referralCode: "REF-CODE-123",
+          couponCode: "FREE100",
+        }),
         "ip-hash-referral"
       );
 

@@ -6,6 +6,8 @@ import { emailAccessRoute } from "./email-access";
 const securityMocks = vi.hoisted(() => ({ verifyTurnstile: vi.fn() }));
 const emailAccessMocks = vi.hoisted(() => ({ createEmailAccessCode: vi.fn() }));
 const emailMocks = vi.hoisted(() => ({ sendEmail: vi.fn() }));
+const productServiceMocks = vi.hoisted(() => ({ getProduct: vi.fn() }));
+const orderServiceMocks = vi.hoisted(() => ({ checkProductPurchaseLimitForQuantity: vi.fn() }));
 const rateLimitMocks = vi.hoisted(() => ({
   enforceRateLimit: vi.fn(),
   releaseCooldown: vi.fn(),
@@ -46,6 +48,15 @@ vi.mock("../services/email-service", () => ({
   sendEmail: (...args: unknown[]) => emailMocks.sendEmail(...args),
 }));
 
+vi.mock("../services/product-service", () => ({
+  getProduct: (...args: unknown[]) => productServiceMocks.getProduct(...args),
+}));
+
+vi.mock("../services/order-service", () => ({
+  checkProductPurchaseLimitForQuantity: (...args: unknown[]) =>
+    orderServiceMocks.checkProductPurchaseLimitForQuantity(...args),
+}));
+
 function createApp() {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
@@ -65,6 +76,12 @@ describe("POST /email/access-code", () => {
     rateLimitMocks.enforceRateLimit.mockResolvedValue({ ok: true, ipHash: "ip-hash" });
     rateLimitMocks.reserveCooldown.mockResolvedValue({ ok: true, subjectHash: "email-hash", windowStart: 123 });
     rateLimitMocks.releaseCooldown.mockResolvedValue(undefined);
+    productServiceMocks.getProduct.mockResolvedValue({
+      id: "prod-1",
+      priceCents: 0,
+      purchaseLimit: 1,
+    });
+    orderServiceMocks.checkProductPurchaseLimitForQuantity.mockResolvedValue({ ok: true });
   });
 
   it("emails the code without returning it in the response", async () => {
@@ -166,5 +183,47 @@ describe("POST /email/access-code", () => {
       "email_access_code_recipient",
       expect.objectContaining({ ok: true, subjectHash: "email-hash", windowStart: 123 }),
     );
+  });
+
+  it("blocks code send before email when purchase limit is already reached", async () => {
+    orderServiceMocks.checkProductPurchaseLimitForQuantity.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      message: "该商品每人限购 1 件，您已达到上限",
+    });
+
+    const res = await createApp().request("https://shop.example.com/api/email/access-code", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: "buyer@example.com",
+        turnstileToken: "token",
+        productId: "prod-1",
+        storefrontId: "sf_default",
+        quantity: 1,
+      }),
+    }, { ADMIN_TOKEN: "admin-secret" });
+    const body = await res.json() as { ok: boolean; error?: string; details?: { code?: string } };
+
+    expect(res.status).toBe(429);
+    expect(body.error).toBe("该商品每人限购 1 件，您已达到上限");
+    expect(body.details?.code).toBe("PURCHASE_LIMIT_REACHED");
+    expect(productServiceMocks.getProduct).toHaveBeenCalledWith(expect.anything(), "prod-1", "sf_default");
+    expect(orderServiceMocks.checkProductPurchaseLimitForQuantity).toHaveBeenCalled();
+    expect(rateLimitMocks.reserveCooldown).not.toHaveBeenCalled();
+    expect(emailMocks.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("skips purchase-limit precheck when productId is omitted (lookup/recharge)", async () => {
+    const res = await createApp().request("https://shop.example.com/api/email/access-code", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "buyer@example.com", turnstileToken: "token" }),
+    }, { ADMIN_TOKEN: "admin-secret" });
+
+    expect(res.status).toBe(200);
+    expect(productServiceMocks.getProduct).not.toHaveBeenCalled();
+    expect(orderServiceMocks.checkProductPurchaseLimitForQuantity).not.toHaveBeenCalled();
+    expect(emailMocks.sendEmail).toHaveBeenCalled();
   });
 });

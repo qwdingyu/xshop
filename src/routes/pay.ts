@@ -52,6 +52,7 @@ import {
 import {
   effectivePurchaseLimitForProduct,
   getFreeProductCheckoutViolation,
+  hasValidEmailAccessCode,
   isBasePriceFree,
   type FreeProductCheckoutViolation,
 } from "../../shared/checkout-policy";
@@ -96,6 +97,7 @@ const IDEMPOTENCY_REPLAY_AFTER_FIELD = "_idempotencyReplayAfter";
 /**
  * 免费商品请求错误使用稳定代码，前端和 API 调用方可据此清理过期的待恢复请求。
  * 文案集中定义，避免不同分支对同一业务约束给出互相矛盾的提示。
+ * 邮箱验证码已改为全商品门禁，不再放在本表。
  */
 const FREE_PRODUCT_CHECKOUT_ERRORS: Record<FreeProductCheckoutViolation, { code: string; message: string }> = {
   quantity: {
@@ -109,10 +111,6 @@ const FREE_PRODUCT_CHECKOUT_ERRORS: Record<FreeProductCheckoutViolation, { code:
   payment_method: {
     code: "FREE_PRODUCT_PAYMENT_METHOD_UNSUPPORTED",
     message: "免费商品无需选择在线支付或余额支付",
-  },
-  email_verification: {
-    code: "EMAIL_VERIFICATION_REQUIRED",
-    message: "免费领取请先完成邮箱验证码校验",
   },
 };
 
@@ -767,6 +765,7 @@ payRoute.post("/pay/unified", async (c) => {
   // 订单仍存用户填写的小写邮箱；限购/限流在 order-service 内再做 canonical。
   const normalizedBuyerEmail = body.data.buyerEmail.trim().toLowerCase();
   const emailAccessCode = (body.data.emailAccessCode || "").trim();
+  // 全商品结账均需邮箱验证码：在幂等缓存读取前完成归属校验，避免未验证邮箱读到含交付内容的缓存。
   if (body.data.balancePayment) {
     const authLimit = await enforceRateLimit(c, "balance_payment_auth", 8);
     if (!authLimit.ok) return fail(c, authLimit.message || "请求过于频繁，请稍后再试", authLimit.status || 429);
@@ -774,18 +773,23 @@ payRoute.post("/pay/unified", async (c) => {
       await writeRequestLog(c, "balance_payment_auth", 403, authLimit.ipHash);
       return fail(c, "余额支付未启用，请选择其它支付方式", 403, { code: "BALANCE_PAYMENT_DISABLED" });
     }
+  }
+  {
+    if (!hasValidEmailAccessCode(emailAccessCode)) {
+      return fail(c, "请先完成邮箱验证码校验", 403, { code: "EMAIL_VERIFICATION_REQUIRED" });
+    }
     const emailAccessSecret = getEmailAccessSecret(c.env.ADMIN_TOKEN, c.req.url);
     if (!emailAccessSecret) {
       return fail(c, "邮箱验证服务未安全配置，请联系管理员", 503, { code: "EMAIL_ACCESS_UNAVAILABLE" });
     }
     const mailboxVerified = await verifyEmailAccessCode(normalizedBuyerEmail, emailAccessCode, emailAccessSecret);
     if (!mailboxVerified) {
-      await writeRequestLog(c, "balance_payment_auth", 403, authLimit.ipHash);
+      const logAction = body.data.balancePayment ? "balance_payment_auth" : "pay_unified_email_auth";
+      await writeRequestLog(c, logAction, 403);
       return fail(c, "邮箱验证码无效或已过期", 403, { code: "EMAIL_VERIFICATION_REQUIRED" });
     }
   }
-  // 余额支付必须先完成邮箱归属验证，再允许读取同一幂等键的缓存响应；缓存可能包含订单交付结果。
-  // 免费领取：验码在读商品后执行；幂等哈希绑定验证码，且 free/balance 缓存重放仍会再验码（码过期即拒绝）。
+  // 幂等哈希绑定验证码；成功缓存重放仍会再验码（码过期即拒绝）。
   const idempotencyKey = rawIdempotencyKey;
   // 即使是缓存命中也先经过基础限流，限制对幂等能力凭证的在线猜测。
   const limit = await enforceRateLimit(c, "pay_unified", 8);
@@ -824,22 +828,15 @@ payRoute.post("/pay/unified", async (c) => {
     if (Number.isFinite(replayAfter) && replayAfter > Date.now()) {
       return fail(c, "支付订单正在处理中，请稍后重试", 409, { code: "IDEMPOTENCY_PENDING" });
     }
-    // free/balance 成功响应可能含交付明文；重放时必须再次证明邮箱归属（验证码窗口过期则拒绝）。
-    const cachedMode = typeof cached.mode === "string" ? cached.mode : "";
-    const requiresMailboxOnReplay = body.data.balancePayment
-      || cachedMode === "free"
-      || cachedMode === "balance"
-      || Boolean(emailAccessCode);
-    if (requiresMailboxOnReplay) {
-      const emailAccessSecret = getEmailAccessSecret(c.env.ADMIN_TOKEN, c.req.url);
-      if (!emailAccessSecret) {
-        return fail(c, "邮箱验证服务未安全配置，请联系管理员", 503, { code: "EMAIL_ACCESS_UNAVAILABLE" });
-      }
-      const mailboxVerified = await verifyEmailAccessCode(normalizedBuyerEmail, emailAccessCode, emailAccessSecret);
-      if (!mailboxVerified) {
-        await writeRequestLog(c, "pay_unified_idempotency_replay", 403, limit.ipHash);
-        return fail(c, "邮箱验证码无效或已过期", 403, { code: "EMAIL_VERIFICATION_REQUIRED" });
-      }
+    // 入口已先验码；重放再验一次，防止验证码窗口在首次成功后过期仍被缓存重放。
+    const emailAccessSecret = getEmailAccessSecret(c.env.ADMIN_TOKEN, c.req.url);
+    if (!emailAccessSecret) {
+      return fail(c, "邮箱验证服务未安全配置，请联系管理员", 503, { code: "EMAIL_ACCESS_UNAVAILABLE" });
+    }
+    const mailboxVerified = await verifyEmailAccessCode(normalizedBuyerEmail, emailAccessCode, emailAccessSecret);
+    if (!mailboxVerified) {
+      await writeRequestLog(c, "pay_unified_idempotency_replay", 403, limit.ipHash);
+      return fail(c, "邮箱验证码无效或已过期", 403, { code: "EMAIL_VERIFICATION_REQUIRED" });
     }
     return c.json(cached, 200);
   }
@@ -898,29 +895,15 @@ payRoute.post("/pay/unified", async (c) => {
   if (freeCheckoutViolation) {
     const error = FREE_PRODUCT_CHECKOUT_ERRORS[freeCheckoutViolation];
     await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
-    // 缺验证码与余额支付一致，使用 403 + EMAIL_VERIFICATION_REQUIRED，便于前端复用提示。
-    const status = freeCheckoutViolation === "email_verification" ? 403 : 400;
-    return fail(c, error.message, status, { code: error.code });
+    return fail(c, error.message, 400, { code: error.code });
   }
   if (basePriceIsFree) {
-    // 免费领取强制邮箱归属：邮件服务与 access secret 任一不可用则拒绝，禁止生产放行。
+    // 免费领取：邮件服务未配置则无法发码，生产拒绝新领取（验码本身不依赖 Resend）。
     if (!runtimeConfig.resendApiKey) {
       await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
       return fail(c, "免费领取需要邮件服务发送验证码，请联系管理员配置", 503, { code: "EMAIL_REQUIRED_FOR_FREE_CLAIM" });
     }
-    const emailAccessSecret = getEmailAccessSecret(c.env.ADMIN_TOKEN, c.req.url);
-    if (!emailAccessSecret) {
-      await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
-      return fail(c, "邮箱验证服务未安全配置，请联系管理员", 503, { code: "EMAIL_ACCESS_UNAVAILABLE" });
-    }
-    // 先验码再计 free_claim：错误/过期验证码不得消耗「每小时 3 次」成功配额，避免自锁与刷锁。
-    const mailboxVerified = await verifyEmailAccessCode(normalizedBuyerEmail, emailAccessCode, emailAccessSecret);
-    if (!mailboxVerified) {
-      await writeRequestLog(c, "free_claim", 403, limit.ipHash);
-      await clearPendingIdempotency(db, idempotencyKey, "pay_unified", idempotencyRequestHash, idempotencyLeaseVersion);
-      return fail(c, "邮箱验证码无效或已过期", 403, { code: "EMAIL_VERIFICATION_REQUIRED" });
-    }
-    // 仅邮箱归属通过后计入 IP 固定窗（默认 3 次/小时），与付费 pay_unified（每分钟）解耦。
+    // free_claim 仅在入口验码通过后计数，错误码不会消耗「每小时 3 次」配额。
     const freeAuthLimit = await enforceRateLimit(c, "free_claim", 3, {
       windowSeconds: 3600,
       message: "免费领取过于频繁，请一小时后再试",

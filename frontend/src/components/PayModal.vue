@@ -134,8 +134,8 @@
                   />
                 </div>
 
-                <!-- 免费领取：强制邮箱验证码（与查单/余额同一套发码链路） -->
-                <div v-if="isBasePriceFreeProduct" class="field-block free-claim-auth">
+                <!-- 全商品强制邮箱验证码（与查单/余额同一套发码链路；发码时带 productId 做限购预检） -->
+                <div class="field-block checkout-email-auth">
                   <div class="email-code-row">
                     <input
                       v-model="emailAccessCode"
@@ -159,7 +159,7 @@
                     {{ emailCodeMsg }}
                   </div>
                   <p class="balance-auth-hint">
-                    免费领取需验证邮箱归属，验证码将发送到上方邮箱
+                    下单需验证邮箱归属，验证码将发送到上方邮箱；已达限购时不会发送邮件
                   </p>
                 </div>
 
@@ -229,33 +229,11 @@
                   <span v-if="selectedPaymentMode === 'balance'" class="payment-method-badge">当前</span>
                 </button>
                 <div v-if="selectedPaymentMode === 'balance'" class="balance-auth-section">
-                  <div class="email-code-row">
-                    <input
-                      v-model="emailAccessCode"
-                      type="text"
-                      inputmode="numeric"
-                      autocomplete="one-time-code"
-                      maxlength="6"
-                      pattern="[0-9]{6}"
-                      placeholder="邮箱验证码"
-                    />
-                    <button
-                      class="btn btn-secondary btn-sm"
-                      type="button"
-                      :disabled="sendingEmailCode || emailCodeCoolingDown || !email.trim()"
-                      @click="sendEmailCode"
-                    >
-                      {{ sendingEmailCode ? '发送中' : emailCodeButtonText }}
-                    </button>
-                  </div>
-                  <div v-if="emailCodeMsg" class="email-code-msg" :class="emailCodeSent ? 'valid' : 'invalid'">
-                    {{ emailCodeMsg }}
-                  </div>
                   <div class="balance-row">
                     <button
                       class="btn btn-secondary btn-sm"
                       type="button"
-                      :disabled="checkingBalance || !email.trim()"
+                      :disabled="checkingBalance || !email.trim() || !/^\d{6}$/.test(emailAccessCode.trim())"
                       @click="checkBalance"
                     >
                       {{ checkingBalance ? '查询中' : '查余额' }}
@@ -265,7 +243,7 @@
                     </span>
                   </div>
                   <p class="balance-auth-hint">
-                    先完成邮箱验证码和余额查询，再提交余额支付
+                    请先在上方完成邮箱验证码，再查询余额并提交余额支付
                   </p>
                 </div>
               </div>
@@ -890,7 +868,12 @@ async function sendEmailCode() {
   sendingEmailCode.value = true
   const turnstileToken = getResponse()
   try {
-    const res = await requestEmailAccessCode(email.value.trim(), turnstileToken || undefined)
+    // 结账发码带上商品与数量：后端在发信前做限购预检，已达上限直接提示，不发邮件。
+    const res = await requestEmailAccessCode(email.value.trim(), turnstileToken || undefined, {
+      productId: product.value.id,
+      storefrontId: product.value.storefrontId,
+      quantity: effectiveQuantity.value,
+    })
     startEmailCodeCooldown(res.resendCooldownSeconds || 60)
     emailCodeSent.value = true
     emailCodeMsg.value = '验证码已发送，请检查邮箱'
@@ -963,8 +946,8 @@ async function handleSubmit() {
       formError.value = '余额不足，请先兑换充值码或选择其它支付方式'
       return
     }
-    if ((useBalance || isBasePriceFreeProduct.value) && !/^\d{6}$/.test(intent.emailAccessCode)) {
-      // 余额支付 / 免费领取必须先证明邮箱归属；验证码只发给邮箱本人。
+    if (!/^\d{6}$/.test(intent.emailAccessCode)) {
+      // 所有商品结账必须先证明邮箱归属；验证码只发给邮箱本人。
       formError.value = '请输入邮件中的 6 位验证码'
       return
     }
